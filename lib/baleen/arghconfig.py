@@ -46,9 +46,12 @@ kw21 = 1
 kw22 = true
 """
 
-import argh
+import sys
+import subprocess
 import configparser
 import logging
+
+import argh
 
 log = logging.getLogger(__name__)
 
@@ -86,19 +89,19 @@ def setup(default_cfg_fname, default_section='DEFAULT'):
     # It is not possible to use nargs="+", because then argparse consumes
     # *all* arguments, leaving nothing to dispatch to argh.
     arg_parser.add_argument(
-            '-c',
-            '--config',
-            action='append',
-            metavar='CONFIG_FILE',
-            default=[default_cfg_fname],
-            help='configuration file; option can be repeated '
-                 'where later configurations override earlier ones')
+        '-c',
+        '--config',
+        action='append',
+        metavar='CONFIG_FILE',
+        default=[default_cfg_fname],
+        help='configuration file; option can be repeated '
+             'where later configurations override earlier ones')
 
     arg_parser.add_argument(
-            '-s',
-            '--section',
-            default=default_section,
-            help='section in config file')
+        '-s',
+        '--section',
+        default=default_section,
+        help='section in config file')
 
     # Parse the --config and --section options (if any),
     # leaving all others to for argh
@@ -113,9 +116,9 @@ def setup(default_cfg_fname, default_section='DEFAULT'):
 
     # Now add the standard help option, to be handled/displayed by argh
     arg_parser.add_argument(
-            '-h', '--help',
-            action='help',
-            help='show this help message and exit')
+        '-h', '--help',
+        action='help',
+        help='show this help message and exit')
 
     # read config files
     config = configparser.ConfigParser()
@@ -126,7 +129,7 @@ def setup(default_cfg_fname, default_section='DEFAULT'):
     for fname in config_fnames:
         if fname not in read_ok:
             arg_parser.error(
-                    "config file {!r} not found".format(fname))
+                "config file {!r} not found".format(fname))
 
     return arg_parser, config, section, left_args
 
@@ -166,7 +169,7 @@ def _inject_defaults(functions, config, section, use_namespace):
     """
     # TODO: handle *args and **kwargs
     for func in functions:
-        #log.info(func.__name__)
+        # log.info(func.__name__)
         # get the argh_args list for this function,
         # as used by @arg decorators to store their settings,
         # otherwise create a new one
@@ -179,12 +182,12 @@ def _inject_defaults(functions, config, section, use_namespace):
         # map from option name to corresponding argument dict in argh_args list
         argh_map = {arg['option_strings'][-1]: arg
                     for arg in argh_args}
-        #log.info(argh_args)
-        #log.info(argh_map)
+        # log.info(argh_args)
+        # log.info(argh_map)
 
         # get function arguments through introspection
         for func_arg in argh.assembling._get_args_from_signature(func):
-            #log.info(func_arg)
+            # log.info(func_arg)
             opt_str = func_arg['option_strings']
             # option name is last elem in case of short options
             # e.g. {'option_strings': ('-m', '--max-n-records'), ...}
@@ -205,7 +208,7 @@ def _inject_defaults(functions, config, section, use_namespace):
                 argh_arg['default'] = _get_config_value(config, section,
                                                         config_name,
                                                         func_arg, argh_arg)
-                #log.info('  {} = {!r}'.format(config_name, argh_arg['default']))
+                # log.info('  {} = {!r}'.format(config_name, argh_arg['default']))
 
                 # FIXME: optional argument hack
                 # manditory arguments can not have a default,
@@ -239,7 +242,7 @@ def _get_config_value(config, section, config_name, func_arg, argh_arg):
     if (given_type is int or default_type is int):
         # value must be an int
         config_value = config.getint(section, config_name)
-    elif (given_type is bool  or
+    elif (given_type is bool or
                   default_type is bool or
                   action in ('store_true', 'store_false')):
         # value must be True or False
@@ -272,10 +275,36 @@ def docstring(from_func, first_line_only=True):
     """
     decorator to copy docstring from given function to decorated function
     """
+
     def wrapper(to_func):
         if first_line_only:
             to_func.__doc__ = from_func.__doc__.strip().split("\n")[0]
         else:
             to_func.__doc__ = from_func.__doc__
         return to_func
+
     return wrapper
+
+
+def run_commands(functions):
+    """
+    run command functions as if called from commandline
+
+    Parameters
+    ----------
+    steps : list
+        list of functions
+    """
+    # Background: we can not simply call all functions, because in that case
+    # all default arguments from config are lost.
+
+    # strip 'run-all' command but keep all config files
+    for i, func in enumerate(functions):
+        log.info(80*'=')
+        log.info('STEP {}: {}'.format(i+1, func.__name__))
+        log.info(80*'=')
+        args = sys.argv[:-1] + [func.__name__]
+        log.info('running command: ' + ' '.join(args))
+        cp = subprocess.run(args )
+        if cp.returncode != 0:
+            break

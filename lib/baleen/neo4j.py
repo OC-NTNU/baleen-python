@@ -9,27 +9,90 @@ log = logging.getLogger(__name__)
 import subprocess
 import csv
 import json
-import os
 import os.path as path
 
 from lxml import etree
 
+from py2neo.ext import neobox
+from py2neo import password, authenticate
+
 from baleen import bibtex
+from baleen import utils
 
 
-def neo4j_import(server, nodes=[], relationships=[], options=''):
+def setup_neo4j_box(neobox_home, box_name, edition, version, user_password):
     """
-    Create a new Neo4j database from data in CSV files by
-    running the neo4j-import command line tool
+    Setup and run a new neo4j server
 
     Parameters
     ----------
-    server : py2neo.server.GraphServer
-        neo4j graph server (stopped)
-    nodes : list
-        .cvs filenames for nodes
-    relationships :list
-        .csv filenames for relationships
+    neobox_home : str
+        directory of neobox warehouse containing all neobox server instances
+    box_name : str
+        name of neobox server instance
+    edition : str
+         Neo4j edition ('community' or 'enterprise')
+    version : str
+        Neo4j version (e.g. '2.1.5')
+    password : str
+        new password for default user 'neo4'
+    """
+    # Create neo4j box
+    # see py2neo/ext/neobox/__main__.py
+    warehouse = neobox.Warehouse(neobox_home)
+    box = warehouse.box(box_name)
+    box.install(edition, version)
+    port = warehouse._ports[box_name]
+    https_port = port + 1
+    log.info('Created server instance {} in warehouse {} configured on '
+             'ports {} and {}'.format(box_name, box.home, port,
+                                      https_port))
+    # start server
+    ps = box.server.start()
+    box_uri = ps.service_root.uri
+    log.info('Started server at {}'.format(box_uri))
+
+    # set password
+    # TODO: change user name
+    # It seems that currently the neo4j server API does not support the
+    # creation of a new user, so the only thing we can/must do is change
+    # the default password for the user 'neo4j'.
+    default_user_name = default_password = 'neo4j'
+    service_root = password.ServiceRoot(box_uri)
+    user_manager = password.UserManager.for_user(service_root,
+                                                 default_user_name,
+                                                 default_password)
+    password_manager = user_manager.password_manager
+    if password_manager.change(user_password):
+        log.info("Password change succeeded")
+    else:
+        log.error("Password change failed")
+
+    # stop server
+    #box.server.stop()
+    #log.info('Server stopped')
+    log.info(
+            'This server can be managed using the "neobox" command line script, '
+            'e.g.\n$ NEOBOX_HOME={} neobox stop {}'.format(neobox_home,
+                                                            box_name))
+
+
+def neo4j_import(neobox_home, box_name, nodes_dir, relations_dir, options=None):
+    """
+    Create a new Neo4j database from data in CSV files
+
+    Runs the neo4j-import command line tool and starts the server.
+
+    Parameters
+    ----------
+    neobox_home : str
+        directory of neobox warehouse containing all neobox server instances
+    box_name : str
+        name of neobox server instance
+    nodes_dir : str
+        directory with .cvs filenames for nodes
+    relations_dir : str
+        directory with .csv filenames for relationships
     options : str
         additional options for neo4j-import
 
@@ -44,32 +107,44 @@ def neo4j_import(server, nodes=[], relationships=[], options=''):
 
     See http://neo4j.com/docs/stable/import-tool-usage.html
     """
+    warehouse = neobox.Warehouse(neobox_home)
+    box = warehouse.box(box_name)
+    server = box.server
+
     # store.drop will raise RuntimeError if server is running
     log.info('deleting database directory ' + server.store.path)
-    try:
-        server.store.drop()
-    except FileNotFoundError:
-        log.warn('database directory ' + server.store.path + ' not found')
+    server.store.drop()
+
+    # server must be down for import
+    server.stop()
 
     bin_dir = path.dirname(server.script)
     executable = path.join(bin_dir, 'neo4j-import')
     args = [executable, '--into', server.store.path]
 
-    for fname in nodes:
+    for fname in utils.file_list(nodes_dir, '*.csv'):
         args.append('--nodes')
         args.append(fname)
 
-    for fname in relationships:
+    for fname in utils.file_list(relations_dir, '*.csv'):
         args.append('--relationships')
         args.append(fname)
 
-    args += options.split()
+    if options:
+        args += options.split()
 
     log.info('running subprocess: ' + ' '.join(args))
-    return subprocess.run(args)
+
+    completed_proc = subprocess.run(args)
+
+    # restart server after import
+    server.start()
+
+    return completed_proc
 
 
-def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, csv_dir):
+def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, nodes_csv_dir,
+                relation_csv_dir, max_n_vars=None):
     """
     Transform extracted variables to csv tables that can be imported
     by neo4j
@@ -83,28 +158,31 @@ def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, csv_dir):
     sent_dir : str
         directory containing sentences (one per line)
     bib_dir : str
-        directory containig BibTex entries (one per file)
-    csv_dir : str
-        output directory for csv files
+        directory containing BibTex entries (one per file)
+    nodes_csv_dir : str
+        output directory for nodes csv files
+    relation_csv_dir : str
+        output directory for relationships csv files
 
     Notes
     -----
     See http://neo4j.com/docs/stable/import-tool-header-format.html
     """
 
-    def create_cvs_file(fname, header=(':START_ID', ':END_ID', ':TYPE')):
-        fname = path.join(csv_dir, fname)
+    def create_csv_file(dir, fname, header=(':START_ID', ':END_ID', ':TYPE')):
+        fname = path.join(dir, fname)
         log.info('creating ' + fname)
         file = open(fname, 'w', newline='')
         csv_file = csv.writer(file, quoting=csv.QUOTE_MINIMAL)
         csv_file.writerow(header)
         return csv_file
 
-    if not path.exists(csv_dir):
-        os.mkdir(csv_dir)
+    utils.make_dir(nodes_csv_dir)
+    utils.make_dir(relation_csv_dir)
 
     # create csv files for nodes
-    articles_csv = create_cvs_file('articles.csv',
+    articles_csv = create_csv_file(nodes_csv_dir,
+                                   'articles.csv',
                                    ('doi:ID',
                                     'filename',
                                     'author',
@@ -115,7 +193,8 @@ def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, csv_dir):
                                     'number',
                                     ':LABEL'))
 
-    sentences_csv = create_cvs_file('sentences.csv',
+    sentences_csv = create_csv_file(nodes_csv_dir,
+                                    'sentences.csv',
                                     ('sentID:ID',
                                      'treeNumber:int',
                                      'charOffsetBegin:int',
@@ -123,11 +202,13 @@ def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, csv_dir):
                                      'sentChars',
                                      ':LABEL'))
 
-    variables_csv = create_cvs_file('variables.csv',
+    variables_csv = create_csv_file(nodes_csv_dir,
+                                    'variables.csv',
                                     ('subStr:ID',
                                      ':LABEL'))
 
-    events_csv = create_cvs_file('events.csv',
+    events_csv = create_csv_file(nodes_csv_dir,
+                                 'events.csv',
                                  ('eventID:ID',
                                   'filename',
                                   'nodeNumber:int',
@@ -137,15 +218,18 @@ def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, csv_dir):
                                   ':LABEL'))
 
     # create csv files for relations
-    has_sent_csv = create_cvs_file('has_sent.csv')
-    theme_csv = create_cvs_file('theme.csv')
-    has_event_csv = create_cvs_file('has_event.csv')
+    has_sent_csv = create_csv_file(relation_csv_dir,
+                                   'has_sent.csv')
+    theme_csv = create_csv_file(relation_csv_dir,
+                                'theme.csv')
+    has_event_csv = create_csv_file(relation_csv_dir,
+                                    'has_event.csv')
 
     filename = None
     tree_number = None
     variables = set()
 
-    for rec in json.load(open(vars_fname))[:100]:
+    for rec in json.load(open(vars_fname))[:max_n_vars]:
         # TODO: this assumes vars are ordered per filename,
         # which may not be true for pruned variables
         if rec['filename'] != filename:
@@ -222,17 +306,25 @@ def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, csv_dir):
                             'THEME'))
 
 
-def postproc_graph(graph, silence_loggers=True):
+
+
+def postproc_graph(neobox_home, box_name, neobox_username, neobox_password,
+                   silence_loggers=True):
     """
-    Post-process graph after import,
-    creating VarChange/VarIncrease/VarDecrease aggregation nodes,
-    creating co-occurrence relations and
-    imposing constraints and indices.
+    Post-process graph after import.
+
+    Creates VarChange/VarIncrease/VarDecrease aggregation nodes,
+    creates co-occurrence relations and
+    imposes constraints and indices.
 
     Parameters
     ----------
-    server : py2neo.server.GraphServer
-        neo4j graph server (running)
+    neobox_home : str
+        directory of neobox warehouse containing all neobox server instances
+    box_name : str
+        name of neobox server instance
+    neobox_username : str
+    neobox_password : str
     silence_loggers : bool
         silence info logging from the py2neo and httpstream
     """
@@ -240,15 +332,21 @@ def postproc_graph(graph, silence_loggers=True):
         logging.getLogger('py2neo').setLevel(logging.WARNING)
         logging.getLogger('httpstream').setLevel(logging.WARNING)
 
+    warehouse = neobox.Warehouse(neobox_home)
+    box = warehouse.box(box_name)
+    authenticate(box.server.service_root.uri.host_port,
+                 neobox_username, neobox_password)
+    graph = box.server.graph
     run = graph.cypher.execute
 
     # -----------------------------------------------------------------------------
     # Constraints
     # -----------------------------------------------------------------------------
+    log.info('creating constraints')
 
     # Create a unique property constraint on the label and property combination.
-    # If any other node with that label is updated or created with a property that
-    # already exists, the write operation will fail.
+    # If any other node with that label is updated or created with a property
+    # that already exists, the write operation will fail.
     # This constraint will create an accompanying index.
     # See http://neo4j.com/docs/stable/query-constraints.html
 
@@ -270,6 +368,7 @@ def postproc_graph(graph, silence_loggers=True):
     # -----------------------------------------------------------------------------
     # Create event aggregation nodes
     # -----------------------------------------------------------------------------
+    log.info('creating event aggregation nodes')
 
     events = ('Change', 'Increase', 'Decrease')
 
@@ -325,6 +424,7 @@ def postproc_graph(graph, silence_loggers=True):
     # -----------------------------------------------------------------------------
     # Create co-occurrence relations
     # -----------------------------------------------------------------------------
+    log.info('creating co-occurrence relations')
 
     # Compute how many times a pair of VarChange/VarIncrease/VarDecrease
     # co-occur in the same sentence.
