@@ -3,9 +3,7 @@ create neo4j graph from variables
 """
 
 import logging
-
-log = logging.getLogger(__name__)
-
+import glob
 import subprocess
 import csv
 import json
@@ -18,6 +16,9 @@ from py2neo import password, authenticate
 
 from baleen import bibtex
 from baleen import utils
+
+
+log = logging.getLogger(__name__)
 
 
 def setup_neo4j_box(neobox_home, box_name, edition, version, user_password):
@@ -243,8 +244,18 @@ def vars_to_csv(vars_fname, scnlp_dir, sent_dir, bib_dir, nodes_csv_dir,
             xml_tree = etree.parse(scnlp_fname)
             sentences_elem = xml_tree.find('.//sentences')
             # get sentences
-            sent_fname = ''.join(filename.partition('#sent')[:2]) + '.txt'
-            sent_fname = path.join(sent_dir, sent_fname)
+            # Input to SCNLP may be tokenized with one sentence per line (abs),
+            # e.g. 10.1038#ismej.2011.152#abs#sent#scnlp_v3.5.1.parse"
+            # or raw text (full),
+            # e.g. 10.1038#490352a#full#scnlp_v3.5.1.parse
+            prefix = '#'.join(filename.split('#')[:3])
+            # e.g. 10.1038#ismej.2011.152#abs*.txt
+            glob_pat = path.join(sent_dir, prefix + '*.txt')
+            matches = glob.glob(glob_pat)
+            assert len(matches) == 1
+            sent_fname = matches[0]
+            ##sent_fname = ''.join(filename.partition('#sent')[:2]) + '.txt'
+            ##sent_fname = path.join(sent_dir, sent_fname)
             sent_text = open(sent_fname).read()
             # get bibtex entry
             hash_doi = '#'.join(rec['filename'].split('#')[:2])
