@@ -339,6 +339,12 @@ def postproc_graph(neobox_home, box_name, neobox_username, neobox_password,
     silence_loggers : bool
         silence info logging from the py2neo and httpstream
     """
+    # TODO: configure timeout
+    # a hack to increase timeout - see
+    # http://stackoverflow.com/questions/27078352/py2neo-2-0-errorhttpstream-socketerror-timed-out
+    from py2neo.packages.httpstream import http
+    http.socket_timeout = 9999
+
     if silence_loggers:
         logging.getLogger('py2neo').setLevel(logging.WARNING)
         logging.getLogger('httpstream').setLevel(logging.WARNING)
