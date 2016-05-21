@@ -15,6 +15,8 @@ from baleen.utils import make_dir
 
 log = logging.getLogger(__name__)
 
+PRUNE_OPTIONS = '--unique'
+
 
 def extract_vars(extract_vars_exec, trees_dir, vars_file):
     """
@@ -52,7 +54,7 @@ def preproc_vars(trans_exec, in_vars_file, out_vars_file, trans_file,
     json.dump(prep_records, open(prep_file, 'w'), indent=0)
 
 
-def prune_vars(prune_vars_exec, vars_file, pruned_file, options=""):
+def prune_vars(prune_vars_exec, vars_file, pruned_file, options=PRUNE_OPTIONS):
     """
     Prune variables in change/increase/decrease events
     """
@@ -92,6 +94,8 @@ def add_offsets(in_vars_fname, scnlp_dir, out_vars_fname=None):
     tree_number = None
 
     for rec in records:
+        #log.debug('adding offset to:\n' + json.dumps(rec))
+
         if rec['filename'] != filename:
             filename = rec['filename']
             scnlp_fname = join(scnlp_dir, filename[:-6] + '.xml')
@@ -111,6 +115,7 @@ def add_offsets(in_vars_fname, scnlp_dir, out_vars_fname=None):
 
     if out_vars_fname:
         with open(out_vars_fname, 'w') as outf:
+            log.info('writing vars with offsets to ' + out_vars_fname)
             json.dump(records, outf, indent=0)
 
     return records
@@ -131,7 +136,7 @@ def parse_pstree(parse, tokens_elem):
     node_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
     leaf_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
     symbol_re = re.compile('%s\s*(%s)?|%s|(%s)' % (
-        open_pattern, node_pattern, close_pattern, leaf_pattern))
+        open_pattern, node_pattern, close_pattern, leaf_pattern), )
 
     # Build an element tree to conveniently propagate offsets from child to
     # parent nodes

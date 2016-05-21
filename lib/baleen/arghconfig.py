@@ -6,7 +6,7 @@ support for command line scripts with Argh and ConfigParser
 # python usage sample
 
 from argh import dispatch, arg
-from nature.config import setup, add_commands
+from baleen.config import setup, add_commands
 
 
 DEFAULT_CONFIG_FILENAME = 'config.ini'
@@ -46,6 +46,7 @@ kw21 = 1
 kw22 = true
 """
 
+import os
 import sys
 import subprocess
 import configparser
@@ -56,14 +57,14 @@ import argh
 log = logging.getLogger(__name__)
 
 
-def setup(default_cfg_fname, default_section='DEFAULT'):
+def setup(default_cfg_fnames=[], default_section='DEFAULT'):
     """
     Setup Argh with defaults from config file
 
     Parameters
     ----------
-    default_cfg_fname : str
-        name of default configuration filename;
+    default_cfg_fnames : list
+        names of default configuration files;
         overridden if -c/--config option is set
     default_section : str
         name of default section in configuration;
@@ -85,6 +86,9 @@ def setup(default_cfg_fname, default_section='DEFAULT'):
     # by argh instead of here.
     arg_parser = argh.ArghParser(add_help=False)
 
+    if not default_cfg_fnames:
+        default_cfg_fnames = find_default_config_files()
+
     # Add the option for one or more config files, including a default.
     # It is not possible to use nargs="+", because then argparse consumes
     # *all* arguments, leaving nothing to dispatch to argh.
@@ -93,7 +97,12 @@ def setup(default_cfg_fname, default_section='DEFAULT'):
         '--config',
         action='append',
         metavar='CONFIG_FILE',
-        default=[default_cfg_fname],
+        # The problem is that action 'append' appends -c values to the
+        # default value instead of overriding the default value
+        # See http://www.gossamer-threads.com/lists/python/python/862097
+        # A workaround is the use a DefaultList wrapper;
+        # see http://www.gossamer-threads.com/lists/python/python/862097
+        default=DefaultList(default_cfg_fnames),
         help='configuration file; option can be repeated '
              'where later configurations override earlier ones')
 
@@ -107,11 +116,9 @@ def setup(default_cfg_fname, default_section='DEFAULT'):
     # leaving all others to for argh
     namespace, left_args = arg_parser.parse_known_args()
 
-    # Get config filenames and section
-    config_fnames = namespace.config
-    # If -c option is used, then the default config file (first) is ignored!
-    if len(config_fnames) > 1:
-        config_fnames = config_fnames[1:]
+    # Get config filenames and section,
+    # possibly overridden by command line options
+    cfg_fnames = namespace.config
     section = namespace.section
 
     # Now add the standard help option, to be handled/displayed by argh
@@ -120,13 +127,16 @@ def setup(default_cfg_fname, default_section='DEFAULT'):
         action='help',
         help='show this help message and exit')
 
+    # prefix OS env vars by '$', to prevent collision with normal config vars
+    env = dict(('$' + k, v) for k, v in os.environ.items())
+
     # read config files
-    config = configparser.ConfigParser()
-    read_ok = config.read(config_fnames)
+    config = configparser.ConfigParser(env)
+    read_ok = config.read(cfg_fnames)
 
     # Non-existing config files are silently ignored by ConfigParser,
     # but we want an error message
-    for fname in config_fnames:
+    for fname in cfg_fnames:
         if fname not in read_ok:
             arg_parser.error(
                 "config file {!r} not found".format(fname))
@@ -277,10 +287,15 @@ def docstring(from_func, first_line_only=True):
     """
 
     def wrapper(to_func):
+        doc_str = from_func.__doc__ or ''
+        if not doc_str:
+            log.warning(
+                "function '{}' has no doc string".format(from_func.__name__))
+
         if first_line_only:
-            to_func.__doc__ = from_func.__doc__.strip().split("\n")[0]
+            to_func.__doc__ = doc_str.strip().split("\n")[0]
         else:
-            to_func.__doc__ = from_func.__doc__
+            to_func.__doc__ = doc_str
         return to_func
 
     return wrapper
@@ -300,11 +315,41 @@ def run_commands(functions):
 
     # strip 'run-all' command but keep all config files
     for i, func in enumerate(functions):
-        log.info(80*'=')
-        log.info('STEP {}: {}'.format(i+1, func.__name__))
-        log.info(80*'=')
-        args = sys.argv[:-1] + [func.__name__]
+        command = func.__name__.replace('_', '-')
+        log.info(80 * '=')
+        log.info('STEP {}: {}'.format(i + 1, command))
+        log.info(80 * '=')
+        args = sys.argv[:-1] + [command]
         log.info('running command: ' + ' '.join(args))
-        cp = subprocess.run(args )
+        cp = subprocess.run(args)
         if cp.returncode != 0:
             break
+
+
+def find_default_config_files():
+    """
+    Find default configuration file(s)
+
+    Looks for the following configuration files:
+    1. ~/.baleen.ini
+    2. filename(s) defined as value of environment variable BALEEN_INI,
+       (possibly colon-separated like in PYTHONPATH)
+    3. <main>.ini where <main> corresponds to the filename of the main module,
+       which is typically the <main>.py command line script
+
+    Returns
+    -------
+    config_filenames : list
+    """
+    ini_fnames = ([os.path.join(os.getenv('HOME', ''), '.baleen.ini')] +
+                  os.getenv('BALEEN_INI', '').split(':') +
+                  [os.path.splitext(sys.argv[0])[0] + '.ini'])
+
+    return [fname
+            for fname in ini_fnames
+            if os.path.exists(fname)]
+
+
+class DefaultList(list):
+    def __copy__(self):
+        return []

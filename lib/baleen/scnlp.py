@@ -1,115 +1,125 @@
 """
-Stanford CoreNLP wrapper
+Stanford CoreNLP wrapper and CoreNLP related post-processing
 """
-
-# TODO doc string
 
 import logging
 
 from os.path import join, exists
 from tempfile import NamedTemporaryFile
-from os import getenv
 from subprocess import check_output
 
 from lxml.etree import ElementTree
 
 from baleen.utils import make_dir, file_list, new_name
 
-
 log = logging.getLogger(__name__)
 
+ANNOTATORS = 'tokenize,ssplit,pos,lemma,parse'
+OUT_DIR = ''
+CLASS_PATH = ''
+VERSION = ''
+MEMORY = '3g'
+THREADS = 1
+REPLACE_EXT = True
+OUTPUT_EXT = '.xml'
+OPTIONS = ''
+STAMP = True
+RESUME = False
+USE_SR_PARSER = False
 
-class CoreNLP(object):
-    def __init__(self,
-                 lib_dir=getenv("CORENLP_HOME",
-                                "/Users/erwin/local/src/corenlp"),
-                 lib_ver=getenv("CORENLP_VER", "3.5.1")):
-        self.lib_dir = lib_dir
-        self.lib_ver = lib_ver
 
-    def run(self,
-            txt_files,
-            out_dir,
-            annotators="tokenize,ssplit,pos,lemma,ner,parse,dcoref",
-            memory="3g",
-            threads=1,
-            replace_extension=True,
-            output_extension=".xml",
-            options="",
-            stamp=True,
-            resume=False):
-        """
-    
-        txt_files:
-            a directory, a glob pattern, a single filename or a list of filenames
-        """
-        make_dir(out_dir)
-        in_files = file_list(txt_files)
-        class_path = '"{}"'.format(join(self.lib_dir, "*"))
+def core_nlp(input,
+             out_dir=OUT_DIR,
+             annotators=ANNOTATORS,
+             class_path=CLASS_PATH,
+             version=VERSION,
+             memory=MEMORY,
+             threads=THREADS,
+             replace_ext=REPLACE_EXT,
+             output_ext=OUTPUT_EXT,
+             options=OPTIONS,
+             stamp=STAMP,
+             resume=RESUME,
+             use_sr_parser=USE_SR_PARSER):
+    """
+    Run Stanford CoreNLP
 
-        if stamp:
-            replace_extension = True
-            output_extension = "#scnlp_v{}{}".format(self.lib_ver,
-                                                     output_extension)
-        if replace_extension:
-            options += " -replaceExtension"
-        if output_extension:
-            options += ' -outputExtension "{}"'.format(output_extension)
+    Parameters
+    ----------
+    input
+    out_dir
+    annotators
+    class_path
+    version
+    memory
+    threads
+    replace_ext
+    output_ext
+    options
+    stamp
+    resume
+    use_sr_parser
 
-        if resume:
-            in_files = [fname for fname in in_files
-                        if
-                        not exists(new_name(fname, out_dir, output_extension))]
+    Returns
+    -------
 
-        tmp_file = NamedTemporaryFile("wt", buffering=1)
-        tmp_file.write("\n".join(in_files) + "\n")
+    """
+    in_files = file_list(input)
+    make_dir(out_dir)
 
-        cmd = ("java -Xmx{} -cp {} "
-               "edu.stanford.nlp.pipeline.StanfordCoreNLP "
-               "-annotators {} -filelist {} "
-               "-outputDirectory {} -threads {} {}").format(
-            memory, class_path, annotators,
-            tmp_file.name, out_dir, threads, options)
+    cmd = ['java']
 
-        log.info("\n" + cmd)
-        ret = check_output(cmd, shell=True, universal_newlines=True)
-        log.info("\n" + ret)
+    if memory:
+        cmd.append('-Xmx' + memory)
 
-    def ssplit(self,
-               txt_files,
-               out_dir=None,
-               annotators="tokenize,ssplit",
-               memory="3g",
-               threads=1,
-               options=" -ssplit.newlineIsSentenceBreak always",
-               stamp=False,
-               resume=False):
-        log.info("start splitting sentences")
-        self.run(txt_files,
-                 out_dir,
-                 annotators,
-                 memory=memory,
-                 threads=threads,
-                 options=options,
-                 stamp=stamp,
-                 resume=resume)
+    if class_path:
+        class_path = '"{}"'.format(join(class_path or '.', "*"))
+        cmd.append('-cp ' + class_path)
 
-    def parse(self,
-              txt_files,
-              out_dir=None,
-              annotators="tokenize,ssplit,pos,lemma,parse",
-              memory="3g",
-              threads=1,
-              options=" -ssplit.eolonly",
-              resume=False):
-        log.info("start parsing sentences")
-        self.run(txt_files,
-                 out_dir,
-                 annotators,
-                 memory=memory,
-                 threads=threads,
-                 options=options,
-                 resume=resume)
+    cmd.append('edu.stanford.nlp.pipeline.StanfordCoreNLP')
+
+    if annotators:
+        cmd.append('-annotators ' + annotators)
+
+    if stamp:
+        replace_ext = True
+        output_ext = '#scnlp_v{}{}'.format(version or '', output_ext)
+
+    if replace_ext:
+        cmd.append('-replaceExtension')
+
+    if output_ext:
+        cmd.append('-outputExtension "{}"'.format(output_ext))
+
+    if out_dir:
+        cmd.append('-outputDirectory ' + out_dir)
+
+    if threads:
+        cmd.append('-threads {}'.format(threads))
+
+    if resume:
+        in_files = [fname for fname in in_files
+                    if not exists(new_name(fname, out_dir, output_ext))]
+
+    if options:
+        cmd.append(options)
+
+    if 'parse' in annotators and use_sr_parser:
+        cmd.append(
+            '-parse.model edu/stanford/nlp/models/srparser/englishSR.ser.gz')
+
+    # create a temporary file with input filenames
+    tmp_file = NamedTemporaryFile("wt", buffering=1)
+    tmp_file.write('\n'.join(in_files) + "\n")
+
+    cmd.append('-filelist ' + tmp_file.name)
+
+    cmd = ' '.join(cmd)
+    log.info('\n' + cmd)
+    ret = check_output(cmd, shell=True, universal_newlines=True)
+    log.info('\n' + ret)
+
+    return ret
 
 
 def extract_parse_trees(scnlp_files, parse_dir):
@@ -149,8 +159,8 @@ def extract_lemmatized_parse_trees(scnlp_files, parse_dir):
             for sentence_elem in nlp_doc.iterfind(".//sentence"):
                 lemmas = sentence_elem.iterfind("tokens/token/lemma")
                 word_parse = sentence_elem.find("parse").text.strip()
-                lemma_parse = " ".join( _lemmatized_node(node, lemmas)
-                                        for node in word_parse.split(" "))
+                lemma_parse = " ".join(_lemmatized_node(node, lemmas)
+                                       for node in word_parse.split(" "))
                 parse_file.write(lemma_parse + "\n")
 
 
