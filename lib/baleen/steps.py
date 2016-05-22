@@ -42,7 +42,6 @@ def core_nlp(input,
 
 def split_sent(input,
                out_dir=scnlp.OUT_DIR,
-               annotators='tokenize,ssplit',
                class_path=scnlp.CLASS_PATH,
                version=scnlp.VERSION,
                memory=scnlp.MEMORY,
@@ -57,7 +56,7 @@ def split_sent(input,
     """
     core_nlp(input=input,
              out_dir=out_dir,
-             annotators=annotators,
+             annotators='tokenize,ssplit',
              class_path=class_path,
              version=version,
              memory=memory,
@@ -71,7 +70,7 @@ def split_sent(input,
 
 def parse_sent(input,
                out_dir=scnlp.OUT_DIR,
-               annotators=scnlp.ANNOTATORS,
+               annotators='tokenize,ssplit,pos,lemma,parse',
                class_path=scnlp.CLASS_PATH,
                version=scnlp.VERSION,
                memory=scnlp.MEMORY,
@@ -118,13 +117,15 @@ def offsets(in_vars_file, scnlp_dir, out_vars_file):
 
 
 @docstring(vars.preproc_vars)
-def prep_vars(trans_exec, in_vars_file, out_vars_file, trans_file, prep_file):
-    vars.preproc_vars(trans_exec, in_vars_file, out_vars_file, trans_file, prep_file)
+def prep_vars(trans_exec, in_vars_file, out_vars_file, trans_file,
+              tmp_file=None):
+    vars.preproc_vars(trans_exec, in_vars_file, out_vars_file,
+                      trans_file, tmp_file)
 
 
 @docstring(vars.prune_vars)
 def prune_vars(prune_vars_exec, vars_file, pruned_file,
-              options=vars.PRUNE_OPTIONS):
+               options=vars.PRUNE_OPTIONS):
     vars.prune_vars(prune_vars_exec, vars_file, pruned_file, options=options)
 
 
@@ -133,10 +134,3 @@ def clean(dir):
     Clean output
     """
     remove_any(dir)
-
-
-
-
-
-
-

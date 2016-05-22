@@ -7,6 +7,7 @@ import logging
 import re
 from os.path import join, dirname
 from subprocess import check_output, STDOUT
+from tempfile import NamedTemporaryFile
 
 from lxml import etree
 
@@ -32,7 +33,7 @@ def extract_vars(extract_vars_exec, trees_dir, vars_file):
 
 
 def preproc_vars(trans_exec, in_vars_file, out_vars_file, trans_file,
-                 prep_file):
+                 tmp_file=None):
     """
     Preprocess variables
 
@@ -40,18 +41,21 @@ def preproc_vars(trans_exec, in_vars_file, out_vars_file, trans_file,
     list item markers (LS or LST).
     """
     make_dir(dirname(out_vars_file))
-    cmd = ' '.join([trans_exec, in_vars_file, out_vars_file, trans_file])
+    if not tmp_file:
+        tmp_file = NamedTemporaryFile()
+        tmp_file = tmp_file.name
+    cmd = ' '.join([trans_exec, in_vars_file, tmp_file, trans_file])
     log.info("\n" + cmd)
     # universal_newlines=True is passed so the return value will be a string
     # rather than bytes
     ret = check_output(cmd, shell=True, universal_newlines=True)
     log.info("\n" + ret)
-    records = json.load(open(out_vars_file))
+    records = json.load(open(tmp_file))
     # Remove any var that has descendents (i.e. from which a node was deleted)
     # Also remove empty vars
-    prep_records = [rec for rec in records
-                    if rec['subStr'] and not 'descendants' in rec]
-    json.dump(prep_records, open(prep_file, 'w'), indent=0)
+    out_vars_records = [rec for rec in records
+                       if rec['subStr'] and not 'descendants' in rec]
+    json.dump(out_vars_records, open(out_vars_file, 'w'), indent=0)
 
 
 def prune_vars(prune_vars_exec, vars_file, pruned_file, options=PRUNE_OPTIONS):
