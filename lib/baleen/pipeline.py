@@ -23,7 +23,7 @@ def script(steps, optional,
         run_commands(steps)
 
     run_all.__doc__ = "Run complete  pipeline: {}".format(
-        " --> ".join(step.__name__ for step in steps))
+        " --> ".join(step.__name__.replace('_','-') for step in steps))
 
     functions = steps + optional + [run_all]
 
