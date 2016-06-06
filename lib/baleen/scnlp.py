@@ -4,13 +4,13 @@ Stanford CoreNLP wrapper and CoreNLP related post-processing
 
 import logging
 
-from os.path import join, exists
+from os.path import join
 from tempfile import NamedTemporaryFile
 from subprocess import check_output
 
 from lxml.etree import ElementTree
 
-from baleen.utils import make_dir, file_list, new_name
+from baleen.utils import make_dir, file_list, derive_path
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +99,9 @@ def core_nlp(input,
 
     if resume:
         in_files = [fname for fname in in_files
-                    if not exists(new_name(fname, out_dir, output_ext))]
+                    if not derive_path(fname,
+                                       new_dir=out_dir,
+                                       new_ext=output_ext).exists()]
 
     if options:
         cmd.append(options)
@@ -132,8 +134,9 @@ def extract_parse_trees(scnlp_files, parse_dir):
     for scnlp_fname in file_list(scnlp_files, "*.xml"):
         nlp_doc = ElementTree(file=scnlp_fname)
 
-        parse_fname = new_name(scnlp_fname, parse_dir, ".parse",
-                               strip_ext=["xml"])
+        parse_fname = derive_path(scnlp_fname,
+                                  new_dir=parse_dir,
+                                  new_ext='.parse')
         log.info("writing " + parse_fname)
 
         with open(parse_fname, "wt", encoding="utf-8") as parse_file:
@@ -151,8 +154,9 @@ def extract_lemmatized_parse_trees(scnlp_files, parse_dir):
     for scnlp_fname in file_list(scnlp_files, "*.xml"):
         nlp_doc = ElementTree(file=scnlp_fname)
 
-        parse_fname = new_name(scnlp_fname, parse_dir, ".parse",
-                               strip_ext=["xml"])
+        parse_fname = derive_path(scnlp_fname,
+                                  new_dir=parse_dir,
+                                  new_ext='.parse')
         log.info("writing " + parse_fname)
 
         with open(parse_fname, "wt", encoding="utf-8") as parse_file:

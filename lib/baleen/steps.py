@@ -107,26 +107,30 @@ def lemma_trees(scnlp_dir, out_dir):
 
 
 @docstring(vars.extract_vars)
-def ext_vars(extract_vars_exec, trees_dir, vars_file):
-    vars.extract_vars(extract_vars_exec, trees_dir, vars_file)
+@arg('-r', '--resume', help='toggle default for resuming process')
+def ext_vars(extract_vars_exec, trees_dir, vars_dir,
+             resume=vars.RESUME_EXTRACT):
+    vars.extract_vars(extract_vars_exec, trees_dir, vars_dir, resume)
 
 
 @docstring(vars.add_offsets)
-def offsets(in_vars_file, scnlp_dir, out_vars_file):
-    vars.add_offsets(in_vars_file, scnlp_dir, out_vars_file)
+@arg('-r', '--resume', help='toggle default for resuming process')
+def offsets(vars_dir, scnlp_dir, resume=vars.RESUME_OFFSET):
+    vars.add_offsets(vars_dir, scnlp_dir, resume)
 
 
 @docstring(vars.preproc_vars)
-def prep_vars(trans_exec, in_vars_file, out_vars_file, trans_file,
-              tmp_file=None):
-    vars.preproc_vars(trans_exec, in_vars_file, out_vars_file,
-                      trans_file, tmp_file)
+def prep_vars(trans_exec, trans_file, in_vars_dir, out_vars_dir, tmp_dir=None,
+              resume=vars.RESUME_PREP):
+    vars.preproc_vars(trans_exec, trans_file, in_vars_dir, out_vars_dir,
+                      tmp_dir, resume)
 
 
 @docstring(vars.prune_vars)
-def prune_vars(prune_vars_exec, vars_file, pruned_file,
-               options=vars.PRUNE_OPTIONS):
-    vars.prune_vars(prune_vars_exec, vars_file, pruned_file, options=options)
+def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir,
+               resume=vars.RESUME_PRUNE, options=vars.PRUNE_OPTIONS):
+    vars.prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir, resume,
+                    options=options)
 
 
 def clean(dir):

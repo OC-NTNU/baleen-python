@@ -8,6 +8,7 @@ import subprocess
 import csv
 import json
 import os.path as path
+from path import Path
 
 from lxml import etree
 
@@ -123,11 +124,11 @@ def neo4j_import(neobox_home, box_name, nodes_dir, relations_dir, options=None):
     executable = path.join(bin_dir, 'neo4j-import')
     args = [executable, '--into', server.store.path]
 
-    for fname in utils.file_list(nodes_dir, '*.csv'):
+    for fname in Path(nodes_dir).files('*.cvs'):
         args.append('--nodes')
         args.append(fname)
 
-    for fname in utils.file_list(relations_dir, '*.csv'):
+    for fname in Path(relations_dir).files('*.csv'):
         args.append('--relationships')
         args.append(fname)
 

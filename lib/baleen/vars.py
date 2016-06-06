@@ -5,26 +5,31 @@ extract, prune and process variables
 import json
 import logging
 import re
-from os.path import join, dirname
+from os.path import join, dirname, splitext
 from subprocess import check_output, STDOUT
-from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
+from path import Path
 
 from lxml import etree
 
-from baleen.utils import make_dir
-
+from baleen.utils import make_dir, file_list, derive_path
 
 log = logging.getLogger(__name__)
 
 PRUNE_OPTIONS = '--unique'
+RESUME_EXTRACT = False
+RESUME_OFFSET = False
+RESUME_PREP = False
+RESUME_PRUNE = False
 
 
-def extract_vars(extract_vars_exec, trees_dir, vars_file):
+def extract_vars(extract_vars_exec, trees_dir, vars_dir, resume=RESUME_EXTRACT):
     """
     Extract variables in change/increase/decrease events
     """
-    make_dir(dirname(vars_file))
-    cmd = "{} {} {}".format(extract_vars_exec, trees_dir, vars_file)
+    resume_option = '--resume' if resume else ''
+    cmd = "{} {} {} {}".format(extract_vars_exec, resume_option, trees_dir,
+                               vars_dir)
     log.info("\n" + cmd)
     # universal_newlines=True is passed so the return value will be a string
     # rather than bytes
@@ -32,47 +37,76 @@ def extract_vars(extract_vars_exec, trees_dir, vars_file):
     log.info("\n" + ret)
 
 
-def preproc_vars(trans_exec, in_vars_file, out_vars_file, trans_file,
-                 tmp_file=None):
+def preproc_vars(trans_exec, trans_fname, in_vars_dir, out_vars_dir,
+                 tmp_dir=None, resume=RESUME_PREP):
     """
     Preprocess variables
 
     Deletes determiners (DT), personal/possessive pronouns (PRP or PRP$) and
     list item markers (LS or LST).
     """
-    make_dir(dirname(out_vars_file))
-    if not tmp_file:
-        tmp_file = NamedTemporaryFile()
-        tmp_file = tmp_file.name
-    cmd = ' '.join([trans_exec, in_vars_file, tmp_file, trans_file])
-    log.info("\n" + cmd)
+    # TODO: resume only works if tmp_dir is given
+    if not tmp_dir:
+        tmp = TemporaryDirectory()
+        tmp_dir = tmp.name
+
+    parts = [trans_exec, '--tag "#prep"']
+    if resume:
+        parts.append('--resume')
+    parts += [in_vars_dir, tmp_dir, trans_fname]
+    cmd = ' '.join(parts)
+    log.info('\n' + cmd)
     # universal_newlines=True is passed so the return value will be a string
     # rather than bytes
     ret = check_output(cmd, shell=True, universal_newlines=True)
-    log.info("\n" + ret)
-    records = json.load(open(tmp_file))
-    # Remove any var that has descendents (i.e. from which a node was deleted)
-    # Also remove empty vars
-    out_vars_records = [rec for rec in records
-                       if rec['subStr'] and not 'descendants' in rec]
-    json.dump(out_vars_records, open(out_vars_file, 'w'), indent=0)
+    log.info('\n' + ret)
+
+    Path(out_vars_dir).makedirs_p()
+
+    for in_vars_fname in Path(tmp_dir).files():
+        out_vars_fname = derive_path(in_vars_fname, new_dir=out_vars_dir)
+
+        if resume and out_vars_fname.exists():
+            log.info('skipping existing preprocessed file ' + out_vars_fname)
+            continue
+
+        records = json.load(open(in_vars_fname))
+        # Remove any var that has descendents
+        # (i.e. from which a node was deleted)
+        # Also remove empty vars
+        out_vars_records = [rec for rec in records
+                            if rec['subStr'] and not 'descendants' in rec]
+        if out_vars_fname:
+            log.info('writing to preprocessed variable file ' + out_vars_fname)
+            json.dump(out_vars_records, out_vars_fname.open('w'), indent=0)
+        else:
+            log.info('skipping empty preprocessed variable file ' +
+                     out_vars_fname)
 
 
-def prune_vars(prune_vars_exec, vars_file, pruned_file, options=PRUNE_OPTIONS):
+def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir, resume=False,
+               options=PRUNE_OPTIONS):
     """
     Prune variables in change/increase/decrease events
     """
-    make_dir(dirname(pruned_file))
-    cmd = "{} {} {} {}".format(prune_vars_exec, options, vars_file,
-                               pruned_file)
-    log.info("\n" + cmd)
+    parts = [prune_vars_exec]
+
+    if resume:
+        parts.append('--resume')
+
+    if options:
+        parts.append(options)
+
+    parts += [in_vars_dir, out_vars_dir]
+
+    cmd = ' '.join(parts)
     # universal_newlines=True is passed so the return value will be a string
     # rather than bytes
     ret = check_output(cmd, shell=True, stderr=STDOUT, universal_newlines=True)
     log.info("\n" + ret)
 
 
-def add_offsets(in_vars_fname, scnlp_dir, out_vars_fname=None):
+def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
     """
     Add character offsets to extracted variables
 
@@ -82,47 +116,42 @@ def add_offsets(in_vars_fname, scnlp_dir, out_vars_fname=None):
 
     Parameters
     ----------
-    in_vars_fname : str
-        name of file with extracted variables in json format
+    vars_dir : str
+        directory of files with extracted variables in json format
     scnlp_dir : str
         directory containing scnlp output in xml format
-    out_vars_fname : str
-        name of file for writing updated vars
-
-    Returns
-    -------
-    json records
+    resume: bool
+       resume process, skipping files that already have offsets
     """
-    records = json.load(open(in_vars_fname))
-    filename = None
-    tree_number = None
+    for var_fname in Path(vars_dir).files():
+        records = json.load(open(var_fname))
+        rec = records[0]
 
-    for rec in records:
-        #log.debug('adding offset to:\n' + json.dumps(rec))
+        if (resume and records and
+                rec.get('charOffsetBegin') and
+                rec.get('charOffsetEnd')):
+            log.info('skipping file with offsets ' + var_fname)
+            continue
 
-        if rec['filename'] != filename:
-            filename = rec['filename']
-            scnlp_fname = join(scnlp_dir, filename[:-6] + '.xml')
-            xml_tree = etree.parse(scnlp_fname)
-            sentences_elem = xml_tree.find('.//sentences')
-            tree_number = None
+        scnlp_fname = join(scnlp_dir, splitext(rec['filename'])[0] + '.xml')
+        xml_tree = etree.parse(scnlp_fname)
+        sentences_elem = xml_tree.find('.//sentences')
+        tree_number = None
 
-        if rec['treeNumber'] != tree_number:
-            tree_number = rec['treeNumber']
-            sent_elem = sentences_elem[int(tree_number) - 1]
-            tokens_elem = sent_elem.find('tokens')
-            parse = sent_elem.find('parse').text
-            node2indices = parse_pstree(parse, tokens_elem)
+        for rec in records:
+            if rec['treeNumber'] != tree_number:
+                tree_number = rec['treeNumber']
+                sent_elem = sentences_elem[int(tree_number) - 1]
+                tokens_elem = sent_elem.find('tokens')
+                parse = sent_elem.find('parse').text
+                node2indices = parse_pstree(parse, tokens_elem)
 
-        indices = node2indices[rec['nodeNumber']]
-        rec['charOffsetBegin'], rec['charOffsetEnd'] = indices
+            indices = node2indices[rec['nodeNumber']]
+            rec['charOffsetBegin'], rec['charOffsetEnd'] = indices
 
-    if out_vars_fname:
-        with open(out_vars_fname, 'w') as outf:
-            log.info('writing vars with offsets to ' + out_vars_fname)
-            json.dump(records, outf, indent=0)
-
-    return records
+            with open(var_fname, 'w') as outf:
+                log.info('writing offsets to ' + var_fname)
+                json.dump(records, outf, indent=0)
 
 
 def parse_pstree(parse, tokens_elem):
@@ -177,4 +206,3 @@ def parse_pstree(parse, tokens_elem):
     # Finally map node numbers to character offsets
     return dict((n, (int(elem.get('start')), int(elem.get('end'))))
                 for n, elem in enumerate(parent.iter()))
-
