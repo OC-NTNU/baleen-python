@@ -125,12 +125,17 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
     """
     for var_fname in Path(vars_dir).files():
         records = json.load(open(var_fname))
-        rec = records[0]
+
+        try:
+            rec = records[0]
+        except IndexError:
+            log.info('skipping file without extracted variables: ' + var_fname)
+            continue
 
         if (resume and records and
                 rec.get('charOffsetBegin') and
                 rec.get('charOffsetEnd')):
-            log.info('skipping file with offsets ' + var_fname)
+            log.info('skipping file with existing offsets: ' + var_fname)
             continue
 
         scnlp_fname = join(scnlp_dir, splitext(rec['filename'])[0] + '.xml')
@@ -149,9 +154,9 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
             indices = node2indices[rec['nodeNumber']]
             rec['charOffsetBegin'], rec['charOffsetEnd'] = indices
 
-            with open(var_fname, 'w') as outf:
-                log.info('writing offsets to ' + var_fname)
-                json.dump(records, outf, indent=0)
+        with open(var_fname, 'w') as outf:
+            log.info('adding offsets to file: ' + var_fname)
+            json.dump(records, outf, indent=0)
 
 
 def parse_pstree(parse, tokens_elem):
