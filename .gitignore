@@ -1,3 +1,4 @@
 workspace.xml
 etc/local.ini
 tmp/
+scripts/*/out/

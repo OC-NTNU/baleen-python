@@ -93,6 +93,7 @@ def copy_doc(from_func, to_func, first_line_only=True):
 
 
 
+# TODO: possible bug is that second part of DOI is regarded as tag; use is_doi flag?
 def derive_path(path, new_dir=None, new_corename=None, new_ext=None,
                 remove_tags=[], append_tags=[]):
     """
@@ -153,3 +154,17 @@ def derive_path(path, new_dir=None, new_corename=None, new_ext=None,
 
     return new_dir / new_corename + new_tags + new_ext
 
+
+def get_doi(path, sep='/'):
+    """
+    Get DOI from a file path
+
+    Parameters
+    ----------
+    path: Path or str
+
+    Returns
+    -------
+    DOI: str
+    """
+    return sep.join(Path(path).basename().split('#')[:2])

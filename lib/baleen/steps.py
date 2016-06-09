@@ -3,7 +3,11 @@ from argh import arg
 from baleen.arghconfig import docstring
 
 from baleen import scnlp, vars
+from baleen import n4j
 from baleen.utils import remove_any
+
+
+# TODO: consider defining __all__
 
 
 # not using *args and **kwargs below,
@@ -133,8 +137,33 @@ def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir,
                     options=options)
 
 
+@arg('--max-n-vars', type=int)
+@docstring(n4j.vars_to_csv)
+def tocsv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_dir, relations_dir,
+          max_n_vars=None):
+    n4j.vars_to_csv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_dir,
+                    relations_dir, max_n_vars)
+
+
+@docstring(n4j.neo4j_import)
+def toneo(warehouse_home, server_name, nodes_dir, relations_dir, options=None):
+    n4j.neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
+                     options=options)
+
+
+@docstring(n4j.postproc_graph)
+def ppgraph(warehouse_home, server_name, password=None):
+    n4j.postproc_graph(warehouse_home, server_name, password)
+
+
 def clean(dir):
     """
     Clean output
     """
     remove_any(dir)
+
+
+setup_server = n4j.setup_server
+remove_server = n4j.remove_server
+start_server = n4j.start_server
+stop_server = n4j.stop_server
