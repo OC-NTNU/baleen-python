@@ -4,6 +4,7 @@ from baleen.arghconfig import docstring
 
 from baleen import scnlp, vars
 from baleen import n4j
+from baleen import cite
 from baleen.utils import remove_any
 
 
@@ -139,9 +140,9 @@ def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir,
 
 @arg('--max-n-vars', type=int)
 @docstring(n4j.vars_to_csv)
-def tocsv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_dir, relations_dir,
+def tocsv(vars_dir, scnlp_dir, text_dir, nodes_dir, relations_dir,
           max_n_vars=None):
-    n4j.vars_to_csv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_dir,
+    n4j.vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_dir,
                     relations_dir, max_n_vars)
 
 
@@ -167,3 +168,10 @@ setup_server = n4j.setup_server
 remove_server = n4j.remove_server
 start_server = n4j.start_server
 stop_server = n4j.stop_server
+
+
+@arg('-r', '--resume', help='toggle default for resuming process')
+@docstring(cite.add_citations)
+def add_cit(warehouse_home, server_name, db_file, resume=False, password=None):
+    cite.add_citations(warehouse_home, server_name, db_file, resume=resume,
+                       password=password)

@@ -13,7 +13,6 @@ from lxml import etree
 from neo4j.v1 import GraphDatabase, basic_auth
 import neokit
 
-from baleen import bibtex
 from baleen.utils import derive_path, get_doi
 
 log = logging.getLogger(__name__)
@@ -21,10 +20,19 @@ log = logging.getLogger(__name__)
 DEFAULT_EDITION = 'community'
 DEFAULT_VERSION = 'LATEST'
 DEFAULT_USER = 'neo4j'
-DEFAULT_PASSWORD = 'neo4j'
+INITIAL_PASSWORD = 'neo4j'
 
 DEFAULT_HTTP_ADDRESS = 'localhost:7474'
 DEFAULT_BOLT_ADDRESS = 'localhost:7687'
+
+# TODO: fix server certificate problem:
+# neo4j.v1.exceptions.ProtocolError: Server certificate does not match known
+# certificate for 'localhost'; check details in file
+# '/Users/work/.neo4j/known_hosts'
+DEFAULT_ENCRYPTED = False
+
+# silence info logging from the py2neo and httpstream
+DEFAULT_SILENCE_LOGGERS = True
 
 
 def setup_server(warehouse_home, server_name, edition=DEFAULT_EDITION,
@@ -52,7 +60,8 @@ def setup_server(warehouse_home, server_name, edition=DEFAULT_EDITION,
 
     try:
         if warehouse.get(server_name):
-            log.error('server instance {!r} already exists!'.format(server_name))
+            log.error(
+                'server instance {!r} already exists!'.format(server_name))
             return
     except (FileNotFoundError, IOError):
         pass
@@ -80,7 +89,7 @@ def setup_server(warehouse_home, server_name, edition=DEFAULT_EDITION,
         # It seems that currently the neo4j server API does not support the
         # creation of a new user, so the only thing we can/must do is change
         # the password for the default user 'neo4j'.
-        server.update_password(DEFAULT_USER, DEFAULT_PASSWORD, password)
+        server.update_password(DEFAULT_USER, INITIAL_PASSWORD, password)
         log.info("Password change succeeded")
 
     warehouse_home = Path(warehouse_home).abspath()
@@ -177,7 +186,7 @@ def neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
     return completed_proc
 
 
-def vars_to_csv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_csv_dir,
+def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                 relation_csv_dir, max_n=None):
     """
     Transform extracted variables to csv tables that can be imported
@@ -227,12 +236,6 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_csv_dir,
                                    'articles.csv',
                                    ('doi:ID',
                                     'filename',
-                                    'author',
-                                    'year',
-                                    'title',
-                                    'journal',
-                                    'volume',
-                                    'number',
                                     ':LABEL'))
 
     sentences_csv = create_csv_file(nodes_csv_dir,
@@ -295,22 +298,8 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_csv_dir,
         xml_tree = etree.parse(scnlp_fname)
         sentences_elem = xml_tree.find('.//sentences')
 
-        # read bibtex entry
-        # TODO: fix bibtex reading!
-        # bib_fname = Path(bib_dir) / hash_doi + '.bib'
-        # entry = bibtex.parse_bibtex_file(bib_fname)
-        entry = {}
-
         # create article node
-        articles_csv.writerow((doi,
-                               text_fname,
-                               entry.get('author', '?'),
-                               entry.get('year', '?'),
-                               entry.get('title', '?'),
-                               entry.get('journal', '?'),
-                               entry.get('volume', '?'),
-                               entry.get('number', '?'),
-                               'Article'))
+        articles_csv.writerow((doi, text_fname, 'Article'))
 
         tree_number = None
 
@@ -363,8 +352,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, bib_dir, nodes_csv_dir,
         f.close()
 
 
-def postproc_graph(warehouse_home, server_name, password=None,
-                   silence_loggers=True):
+def postproc_graph(warehouse_home, server_name, password=None):
     """
     Post-process graph after import.
 
@@ -382,8 +370,7 @@ def postproc_graph(warehouse_home, server_name, password=None,
     silence_loggers : bool
         silence info logging from the py2neo and httpstream
     """
-    session = get_session(warehouse_home, server_name, password,
-                          silence_loggers)
+    session = get_session(warehouse_home, server_name, password)
 
     # -----------------------------------------------------------------------------
     # Constraints
@@ -397,8 +384,8 @@ def postproc_graph(warehouse_home, server_name, password=None,
     # See http://neo4j.com/docs/stable/query-constraints.html
 
     session.run("""
-    CREATE CONSTRAINT ON (s:Article)
-    ASSERT s.doi IS UNIQUE
+    CREATE CONSTRAINT ON (a:Article)
+    ASSERT a.doi IS UNIQUE
     """)
 
     session.run("""
@@ -489,7 +476,9 @@ def postproc_graph(warehouse_home, server_name, password=None,
     session.close()
 
 
-def get_session(warehouse_home, server_name, password, silence_loggers):
+def get_session(warehouse_home, server_name, password=None,
+                encrypted=DEFAULT_ENCRYPTED,
+                silence_loggers=DEFAULT_SILENCE_LOGGERS):
     if silence_loggers:
         logging.getLogger('neo4j.bolt').setLevel(logging.WARNING)
 
@@ -498,10 +487,10 @@ def get_session(warehouse_home, server_name, password, silence_loggers):
     server_url = 'bolt://' + address
 
     if password:
-        driver = GraphDatabase.driver(server_url,
+        driver = GraphDatabase.driver(server_url, encrypted=encrypted,
                                       auth=basic_auth(DEFAULT_USER, password))
     else:
-        driver = GraphDatabase.driver(server_url)
+        driver = GraphDatabase.driver(server_url, encrypted=encrypted)
 
     session = driver.session()
     return session

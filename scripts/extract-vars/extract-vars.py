@@ -17,8 +17,9 @@ script(
            tocsv,
            setup_server,
            toneo,
-           ppgraph],
-    optional=[clean,
-              remove_server,
+           ppgraph,
+           add_cit],
+    optional=[remove_server,
               start_server,
-              stop_server])
+              stop_server,
+              clean])
