@@ -286,10 +286,16 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
         hash_doi = doi.replace('/', '#')
 
         # read original text
-        txt_fnames = Path(text_dir).files(hash_doi + '*')
-        text_fname = txt_fnames.pop()
-        # there should be one match only
-        assert not txt_fnames
+        txt_fnames = (Path(text_dir).files(hash_doi + '.txt') or
+                      Path(text_dir).files(hash_doi + '#*.txt'))
+        if len(txt_fnames) == 0:
+            log.error('no matching text file for ' + hash_doi)
+            continue
+        elif len(txt_fnames) > 1:
+            log.warning('multiple matching text files for {}:\n{}'.format(
+                hash_doi, '\n'.join(txt_fnames)))
+
+        text_fname = txt_fnames[0]
         text = open(text_fname).read()
 
         # read corenlp analysis
