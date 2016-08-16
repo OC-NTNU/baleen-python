@@ -124,6 +124,7 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
        resume process, skipping files that already have offsets
     """
     for var_fname in Path(vars_dir).files():
+        print(var_fname)
         records = json.load(open(var_fname))
 
         try:
@@ -167,12 +168,16 @@ def parse_pstree(parse, tokens_elem):
     Stanford CoreNLP. The corresponding tokens are the elements contained in
     <tokens>...</tokens>.
     """
-
     # Construct a regexp that will tokenize the string.
     open_b, close_b = '()'
     open_pattern, close_pattern = (re.escape(open_b), re.escape(close_b))
     node_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
-    leaf_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
+    #leaf_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
+    # Modified original leaf pattern from NLTK to accommodate case like
+    # (NP (NP (DT the) (CD 8 1/2) (NN day) (NN period))
+    # where the leaf "8 1/2" contains whitespace
+    leaf_pattern = '[^\s%s%s]+[^%s%s]*' % (open_pattern, close_pattern,
+                                           open_pattern, close_pattern)
     symbol_re = re.compile('%s\s*(%s)?|%s|(%s)' % (
         open_pattern, node_pattern, close_pattern, leaf_pattern), )
 
