@@ -124,7 +124,6 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
        resume process, skipping files that already have offsets
     """
     for var_fname in Path(vars_dir).files():
-        print(var_fname)
         records = json.load(open(var_fname))
 
         try:
