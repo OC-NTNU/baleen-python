@@ -167,4 +167,5 @@ def get_doi(path, sep='/'):
     -------
     DOI: str
     """
-    return sep.join(Path(path).basename().split('#')[:2])
+    # namebase will remove extension in cases like 10.1038#16898.txt
+    return sep.join(Path(path).namebase.split('#')[:2])

@@ -214,7 +214,6 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     See http://neo4j.com/docs/stable/import-tool-header-format.html
     """
     # TODO: change article nodes to document
-    # TODO: extract the bibtex to separate step
     # hold on to open files
     open_files = []
 
@@ -273,6 +272,9 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     # global set of all variable types (i.e. subStr) in collection
     variable_types = set()
 
+    # mapping from DOI to text files
+    doi2txt = _doi2txt_fname(text_dir)
+
     for json_fname in Path(vars_dir).files('*.json')[:max_n]:
         records = json.load(open(json_fname))
 
@@ -283,26 +285,20 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
         log.info('processing variables from file: ' + json_fname)
 
         doi = get_doi(json_fname)
-        hash_doi = doi.replace('/', '#')
 
-        # read original text
-        txt_fnames = (Path(text_dir).files(hash_doi + '.txt') or
-                      Path(text_dir).files(hash_doi + '#*.txt'))
-        if len(txt_fnames) == 0:
-            log.error('no matching text file for ' + hash_doi)
+        try:
+            text_fname = doi2txt[doi]
+        except KeyError:
+            log.error('no matching text file for DOI ' + doi)
             continue
-        elif len(txt_fnames) > 1:
-            log.warning('multiple matching text files for {}:\n{}'.format(
-                hash_doi, '\n'.join(txt_fnames)))
 
-        text_fname = txt_fnames[0]
         text = open(text_fname).read()
 
         # read corenlp analysis
         tree_fname = records[0]['filename']
         scnlp_fname = derive_path(tree_fname, new_dir=scnlp_dir, new_ext='xml')
         xml_tree = etree.parse(scnlp_fname)
-        sentences_elem = xml_tree.find('.//sentences')
+        sentences_elem = xml_tree.getroot()[0][0]
 
         # create article node
         articles_csv.writerow((doi, text_fname, 'Article'))
@@ -470,6 +466,7 @@ def postproc_graph(warehouse_home, server_name, password=None):
     # The id(ve1) < id(ve2) statements prevents counting co-occurence twice
     # (because matching is symmetrical).
     # Store co-occurrence frequency on a new COOCCURS edge.
+    # TODO: can we use VarEvent here and avoid the loops???
     for event1 in events:
         for event2 in events:
             session.run("""
@@ -500,3 +497,20 @@ def get_session(warehouse_home, server_name, password=None,
 
     session = driver.session()
     return session
+
+
+def _doi2txt_fname(text_dir):
+    """
+    Create a dict mapping DOI to path of input text file
+    """
+    doi2txt = {}
+
+    for p in Path(text_dir).files():
+        doi = get_doi(p)
+        if doi in doi2txt:
+            log.error('DOI {} already mapped to text file {}; '
+                      'ignoring text file {}'.format(doi, doi2txt[doi], p))
+        else:
+            doi2txt[doi] = p
+
+    return doi2txt
