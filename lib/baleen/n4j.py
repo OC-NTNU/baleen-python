@@ -466,15 +466,12 @@ def postproc_graph(warehouse_home, server_name, password=None):
     # The id(ve1) < id(ve2) statements prevents counting co-occurence twice
     # (because matching is symmetrical).
     # Store co-occurrence frequency on a new COOCCURS edge.
-    # TODO: can we use VarEvent here and avoid the loops???
-    for event1 in events:
-        for event2 in events:
-            session.run("""
-                MATCH (ve1:Var{event1}) -[:INST]-> (:{event1}) <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]-> (:{event2}) <-[:INST]- (ve2:Var{event2})
-                WHERE id(ve1) < id(ve2)
-                WITH ve1, ve2, count(*) AS n
-                MERGE (ve1) -[:COOCCURS {{n: n}}]-> (ve2)
-            """.format(event1=event1, event2=event2))
+    session.run("""
+        MATCH (ve1:VarEvent) -[:INST]-> (:Event) <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]-> (:Event) <-[:INST]- (ve2:VarEvent)
+        WHERE id(ve1) < id(ve2)
+        WITH ve1, ve2, count(*) AS n
+        MERGE (ve1) -[:COOCCURS {n: n}]-> (ve2)
+    """)
 
     session.close()
 
