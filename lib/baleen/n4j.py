@@ -400,6 +400,11 @@ def postproc_graph(warehouse_home, server_name, password=None):
     ASSERT v.subStr IS UNIQUE
     """)
 
+    session.run("""
+    CREATE CONSTRAINT ON (e:Event)
+    ASSERT e.eventID IS UNIQUE
+    """)
+
     # -----------------------------------------------------------------------------
     # Create event aggregation nodes
     # -----------------------------------------------------------------------------
