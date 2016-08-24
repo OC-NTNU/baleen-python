@@ -3,9 +3,8 @@ citations
 """
 
 import logging
-import pickle
+import pickleshare
 from path import Path
-import json
 
 import requests
 
@@ -19,7 +18,7 @@ logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(
     logging.WARNING)
 
 
-def add_citations(warehouse_home, server_name, cache_fname,
+def add_citations(warehouse_home, server_name, cache_dir,
                   resume=False, password=None):
     """
     Add citation string to Article nodes
@@ -28,7 +27,7 @@ def add_citations(warehouse_home, server_name, cache_fname,
     ----------
     warehouse_home
     server_name
-    cache_fname
+    cache_dir
     resume
     password
 
@@ -56,20 +55,15 @@ def add_citations(warehouse_home, server_name, cache_fname,
         log.info('no Article nodes without citation property')
         return
 
-    cache_path = Path(cache_fname)
-
-    if cache_path.exists():
-        log.info('reading cached citations from ' + cache_path)
-        cache = pickle.load(open(cache_path, 'rb'))
-    else:
-        log.info('no cached citations found at ' + cache_path)
-        cache = {}
-
+    # The reason to use pickleshare is that it uses a separate pickle file
+    # for each key (i.e. doi), so if the process crashes, at least most of the
+    # looked up citations/metadata is saved to file
+    cache_path = Path(cache_dir)
     cache_path.dirname().makedirs_p()
-    modified = False
+    log.info('reading cached citations from ' + cache_path)
+    cache = pickleshare.PickleShareDB(cache_dir)
 
-    # for rec in records:
-    for rec in list(records):
+    for rec in records:
         doi = rec['doi']
 
         try:
@@ -77,7 +71,6 @@ def add_citations(warehouse_home, server_name, cache_fname,
         except KeyError:
             citation = get_citation(doi)
             cache[doi] = citation
-            modified = True
 
         session.run("""
         MATCH (a:Article)
@@ -85,10 +78,6 @@ def add_citations(warehouse_home, server_name, cache_fname,
         SET a.citation = {citation}
         """, {'doi': doi, 'citation': citation})
         log.info('added citation for DOI ' + doi)
-
-    if modified:
-        log.info('writing cached citations to ' + cache_path)
-        cache = pickle.dump(cache, open(cache_path, 'wb'))
 
 
 def get_citation(doi, style='chicago-fullnote-bibliography',
@@ -130,7 +119,7 @@ def get_citation(doi, style='chicago-fullnote-bibliography',
     return citation
 
 
-def add_metadata(warehouse_home, server_name, cache_fname,
+def add_metadata(warehouse_home, server_name, cache_dir,
                  resume=False, password=None):
     """
     Add citation string to Article nodes
@@ -139,7 +128,7 @@ def add_metadata(warehouse_home, server_name, cache_fname,
     ----------
     warehouse_home
     server_name
-    cache_fname
+    cache_dir
     resume
     password
 
@@ -167,20 +156,12 @@ def add_metadata(warehouse_home, server_name, cache_fname,
         log.info('no Article nodes without title property')
         return
 
-    cache_path = Path(cache_fname)
-
-    if cache_path.exists():
-        log.info('reading cached metadata from ' + cache_path)
-        cache = pickle.load(open(cache_path, 'rb'))
-    else:
-        log.info('no cached metadata found at ' + cache_path)
-        cache = {}
-
+    cache_path = Path(cache_dir)
     cache_path.dirname().makedirs_p()
-    modified = False
+    log.info('reading cached citations from ' + cache_path)
+    cache = pickleshare.PickleShareDB(cache_dir)
 
-    # for rec in records:
-    for rec in list(records):
+    for rec in records:
         doi = rec['doi']
 
         try:
@@ -189,7 +170,6 @@ def add_metadata(warehouse_home, server_name, cache_fname,
             metadata = get_metadata(doi)
             if metadata:
                 cache[doi] = metadata
-                modified = True
             else:
                 # e.g. 404: not found
                 continue
@@ -217,10 +197,6 @@ def add_metadata(warehouse_home, server_name, cache_fname,
                       'container_title': metadata.get('container-title'),
                       'year': year})
         log.info('added metadata for DOI ' + doi)
-
-    if modified:
-        log.info('writing cached metadata to ' + cache_path)
-        cache = pickle.dump(cache, open(cache_path, 'wb'))
 
 
 def get_metadata(doi):
