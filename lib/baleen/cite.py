@@ -3,7 +3,7 @@ citations
 """
 
 import logging
-import dbm
+import pickle
 from path import Path
 
 import requests
@@ -18,7 +18,7 @@ logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(
     logging.WARNING)
 
 
-def add_citations(warehouse_home, server_name, db_fname,
+def add_citations(warehouse_home, server_name, cache_fname,
                   resume=False, password=None):
     """
     Add citation string to Article nodes
@@ -27,7 +27,7 @@ def add_citations(warehouse_home, server_name, db_fname,
     ----------
     warehouse_home
     server_name
-    db_fname
+    cache_fname
     resume
     password
 
@@ -55,26 +55,40 @@ def add_citations(warehouse_home, server_name, db_fname,
         log.info('no Article nodes without citation property')
         return
 
-    Path(db_fname).dirname().makedirs_p()
+    cache_path = Path(cache_fname)
 
-    log.info('reading/writing cached citations from/to ' + db_fname)
+    if cache_path.exists():
+        log.info('reading cached citations from ' + cache_path)
+        cache = pickle.load(open(cache_path, 'rb'))
+    else:
+        log.info('no cached citations found at ' + cache_path)
+        cache = {}
 
-    with dbm.open(db_fname, 'c') as cit_db:
-        for rec in records:
-            doi = rec['doi']
+    cache_path.dirname().makedirs_p()
+    modified = False
 
-            try:
-                citation = cit_db[doi]
-            except KeyError:
-                citation = get_citation(doi)
-                cit_db[doi] = citation
+    #for rec in records:
+    for rec in list(records)[:10]:
+        doi = rec['doi']
 
-            session.run("""
-            MATCH (a:Article)
-            WHERE a.doi = {doi}
-            SET a.citation = {citation}
-            """, {'doi': doi, 'citation': citation})
-            log.info('added citation for DOI ' + doi)
+        try:
+            citation = cache[doi]
+        except KeyError:
+            citation = get_citation(doi)
+            cache[doi] = citation
+            modified = True
+
+        session.run("""
+        MATCH (a:Article)
+        WHERE a.doi = {doi}
+        SET a.citation = {citation}
+        """, {'doi': doi, 'citation': citation})
+        log.info('added citation for DOI ' + doi)
+
+    if modified:
+        log.info('writing cached citations to ' + cache_path)
+        cache = pickle.dump(cache, open(cache_path, 'wb'))
+
 
 
 def get_citation(doi, style='chicago-fullnote-bibliography',
@@ -111,6 +125,6 @@ def get_citation(doi, style='chicago-fullnote-bibliography',
 
     if strip_doi:
         # TODO: won't work for other styles
-        citation = citation.split('doi:')[0]
+        citation = citation.split(' doi:')[0]
 
     return citation
