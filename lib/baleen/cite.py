@@ -69,7 +69,7 @@ def add_citations(warehouse_home, server_name, cache_fname,
     modified = False
 
     # for rec in records:
-    for rec in list(records)[:10]:
+    for rec in list(records):
         doi = rec['doi']
 
         try:
