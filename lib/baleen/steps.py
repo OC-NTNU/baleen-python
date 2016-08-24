@@ -172,6 +172,15 @@ stop_server = n4j.stop_server
 
 @arg('-r', '--resume', help='toggle default for resuming process')
 @docstring(cite.add_citations)
-def add_cit(warehouse_home, server_name, db_file, resume=False, password=None):
-    cite.add_citations(warehouse_home, server_name, db_file, resume=resume,
+def add_cit(warehouse_home, server_name, cache_file, resume=False,
+            password=None):
+    cite.add_citations(warehouse_home, server_name, cache_file, resume=resume,
                        password=password)
+
+
+@arg('-r', '--resume', help='toggle default for resuming process')
+@docstring(cite.add_metadata)
+def add_meta(warehouse_home, server_name, cache_file, resume=False,
+             password=None):
+    cite.add_metadata(warehouse_home, server_name, cache_file, resume=resume,
+                      password=password)
