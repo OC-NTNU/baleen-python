@@ -187,8 +187,12 @@ def add_metadata(warehouse_home, server_name, cache_fname,
             metadata = cache[doi]
         except KeyError:
             metadata = get_metadata(doi)
-            cache[doi] = metadata
-            modified = True
+            if metadata:
+                cache[doi] = metadata
+                modified = True
+            else:
+                # e.g. 404: not found
+                continue
 
         # example fragment:
         # 'published-online': {'date-parts': [[2009, 8, 30]]},
