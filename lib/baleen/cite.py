@@ -323,13 +323,15 @@ def clean_metadata_cache(cache_dir):
     cache = pickleshare.PickleShareDB(cache_dir)
     to_delete = []
 
-    for doi, metadata in cache.items():
+    for key in cache.keys():
+        func = get_doi_metadata if '/' in key else get_issn_metadata
+        metadata = func(key, cache)
         if None in metadata.values():
-            to_delete.append(doi)
+            to_delete.append(key)
 
-    for doi in to_delete:
-        log.info('removing incomplete cached metadata for DOI {}'.format(doi))
-        del cache[doi]
+    for key in to_delete:
+        log.info('removing incomplete cached metadata for key {}'.format(key))
+        del cache[key]
 
 
 
