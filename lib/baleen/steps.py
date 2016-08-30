@@ -184,3 +184,8 @@ def add_meta(warehouse_home, server_name, cache_dir, resume=False,
              password=None):
     cite.add_metadata(warehouse_home, server_name, cache_dir, resume=resume,
                       password=password)
+
+
+@docstring(cite.clean_metadata_cache)
+def clean_cache(cache_dir):
+    cite.clean_metadata_cache(cache_dir)

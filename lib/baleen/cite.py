@@ -65,22 +65,19 @@ def add_citations(warehouse_home, server_name, cache_dir,
 
     for rec in records:
         doi = rec['doi']
+        citation = get_citation(doi, cache)
 
-        try:
-            citation = cache[doi]
-        except KeyError:
-            citation = get_citation(doi)
-            cache[doi] = citation
-
-        session.run("""
-        MATCH (a:Article)
-        WHERE a.doi = {doi}
-        SET a.citation = {citation}
-        """, {'doi': doi, 'citation': citation})
-        log.info('added citation for DOI ' + doi)
+        if citation:
+            session.run("""
+            MATCH (a:Article)
+            WHERE a.doi = {doi}
+            SET a.citation = {citation}
+            """, {'doi': doi, 'citation': citation})
+            log.info('added citation for DOI ' + doi)
 
 
-def get_citation(doi, style='chicago-fullnote-bibliography',
+def get_citation(doi, cache,
+                 style='chicago-fullnote-bibliography',
                  strip_doi=True):
     """
     Get citation string for DOI from CrossRef
@@ -88,6 +85,7 @@ def get_citation(doi, style='chicago-fullnote-bibliography',
     Parameters
     ----------
     doi
+    cache
     style
     strip_doi
 
@@ -95,6 +93,11 @@ def get_citation(doi, style='chicago-fullnote-bibliography',
     -------
 
     """
+    try:
+        return cache[doi]
+    except KeyError:
+        pass
+
     headers = {'Accept': 'text/bibliography; style={}'.format(style)}
     attempts = 10
 
@@ -116,6 +119,7 @@ def get_citation(doi, style='chicago-fullnote-bibliography',
         # TODO: won't work for other styles
         citation = citation.split(' doi:')[0]
 
+    cache[doi] = citation
     return citation
 
 
@@ -141,7 +145,10 @@ def add_metadata(warehouse_home, server_name, cache_dir,
     if resume:
         query = """
             MATCH (a:Article)
-            WHERE a.title is NULL
+            WHERE ( a.title is NULL OR
+                    a.journal is NULL OR
+                    a.year is NULL OR
+                    a.ISSN is NULL )
             RETURN a.doi as doi"""
     else:
         query = """
@@ -158,53 +165,88 @@ def add_metadata(warehouse_home, server_name, cache_dir,
 
     cache_path = Path(cache_dir)
     cache_path.dirname().makedirs_p()
-    log.info('reading cached citations from ' + cache_path)
+    log.info('reading cached metadata from ' + cache_path)
     cache = pickleshare.PickleShareDB(cache_dir)
 
     for rec in records:
         doi = rec['doi']
-
-        try:
-            metadata = cache[doi]
-        except KeyError:
-            metadata = get_metadata(doi)
-            if metadata:
-                cache[doi] = metadata
-            else:
-                # e.g. 404: not found
-                continue
-
-        # example fragment:
-        # 'published-online': {'date-parts': [[2009, 8, 30]]},
-        # 'published-print': {'date-parts': [[1998, 1, 22]]}
-
-        published = (metadata.get('published-online') or
-                      metadata.get('published-print') or
-                      {})
-        try:
-            year = published['date-parts'][0][0]
-        except:
-            year = None
+        metadata = get_all_metadata(doi, cache)
 
         session.run("""
                 MATCH (a:Article)
                 WHERE a.doi = {doi}
                 SET a.title = {title},
-                    a.container_title = {container_title},
-                    a.year = {year}
-                """, {'doi': doi,
-                      'title': metadata.get('title'),
-                      'container_title': metadata.get('container-title'),
-                      'year': year})
+                    a.journal = {journal},
+                    a.year = {year},
+                    a.month = {month},
+                    a.day = {day},
+                    a.ISSN = {ISSN}
+                """, metadata)
+
         log.info('added metadata for DOI ' + doi)
 
 
-def get_metadata(doi):
+def get_all_metadata(doi, cache):
     """
-    Get metadata for DOI from CrossRef
+    Get metadata for DOI, including metadata from ISSN
     """
+    metadata = get_doi_metadata(doi, cache)
+    issn_metadata = get_issn_metadata(metadata['ISSN'], cache)
+    metadata.update(issn_metadata)
+    return metadata
+
+
+def get_doi_metadata(doi, cache):
+    """
+    Get metadata for DOI
+    """
+    doi_metadata = request_doi_metadata(doi, cache)
+    metadata = {'doi': doi}
+
+    for key in 'title', 'publisher':
+        try:
+            metadata[key] = doi_metadata[key]
+        except KeyError:
+            metadata[key] = None
+            log.warn('no {} found for DOI {}'.format(key, doi))
+
+    try:
+        metadata['ISSN'] = doi_metadata['ISSN'][0]
+    except (KeyError, IndexError):
+        metadata['ISSN'] = None
+        log.warn('no ISSN found for DOI {}'.format(key, doi))
+
+    try:
+        metadata['journal'] = doi_metadata['container-title']
+    except KeyError:
+        metadata['journal'] = None
+        log.warn('no journal (container-title) found for DOI {}'.format(doi))
+
+    try:
+        # example fragment:
+        # 'published-online': {'date-parts': [[2009, 8, 30]]},
+        # 'published-print': {'date-parts': [[1998, 1, 22]]}
+        published = (doi_metadata.get('published-online') or
+                     doi_metadata.get('published-print'))
+        metadata['year'], metadata['month'], metadata['day'] = \
+        published['date-parts'][0]
+    except (KeyError, IndexError, ValueError):
+        metadata['year'], metadata['month'], metadata['day'] = None, None, None
+        log.warn('no publication date found for DOI {}'.format(doi))
+
+    return metadata
+
+
+def request_doi_metadata(doi, cache, attempts=10):
+    """
+    Request metadata for DOI from CrossRef
+    """
+    try:
+        return cache[doi]
+    except KeyError:
+        pass
+
     headers = {'Accept': 'application/vnd.citationstyles.csl+json'}
-    attempts = 10
 
     for i in range(attempts):
         response = requests.get('http://dx.doi.org/{}'.format(doi),
@@ -212,10 +254,85 @@ def get_metadata(doi):
         if response.ok:
             break
     else:
-        log.error('request for metadata of {} returned {}: {}'.format(
+        log.error('request for metadata of DOI {} returned {}: {}'.format(
             doi, response.status_code, response.reason))
-        return None
+        return {}
 
-    log.info('request for metadata of {} succeeded'.format(doi))
+    log.info('request for metadata of DOI {} succeeded'.format(doi))
+    metadata = response.json()
+    cache[doi] = metadata
+    return metadata
 
-    return response.json()
+
+def get_issn_metadata(issn, cache):
+    """
+    Get metadata for ISSN
+    """
+    issn_metadata = request_issn_metadata(issn, cache)
+    metadata = {}
+
+    try:
+        metadata['journal'] = issn_metadata['title']
+    except KeyError:
+        pass
+
+    try:
+        metadata['publisher'] = issn_metadata['publisher']
+    except KeyError:
+        pass
+
+    return metadata
+
+
+def request_issn_metadata(issn, cache, attempts=10):
+    """
+    Request metadata for ISSN from CrossRef
+    """
+    try:
+        return cache[issn]
+    except KeyError:
+        pass
+
+    for i in range(attempts):
+        response = requests.get(
+            'http://api.crossref.org/journals/{}'.format(issn))
+        if response.ok:
+            break
+    else:
+        log.error('request for metadata of ISSN {} returned {}: {}'.format(
+            issn, response.status_code, response.reason))
+        return {}
+
+    log.info('request for metadata of ISSN {} succeeded'.format(issn))
+    message = response.json()['message']
+    cache[issn] = message
+    return message
+
+
+
+def clean_metadata_cache(cache_dir):
+    """
+    Remove records with None values from metadata cache
+
+    This means that on the next call to add_metadata(),
+    new metadata will be requested for the removed records.
+    """
+    cache_path = Path(cache_dir)
+    cache_path.dirname().makedirs_p()
+    log.info('cleaning cached metadata from ' + cache_path)
+    cache = pickleshare.PickleShareDB(cache_dir)
+    to_delete = []
+
+    for doi, metadata in cache.items():
+        if None in metadata.values():
+            to_delete.append(doi)
+
+    for doi in to_delete:
+        log.info('removing incomplete cached metadata for DOI {}'.format(doi))
+        del cache[doi]
+
+
+
+
+
+
