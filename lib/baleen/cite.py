@@ -230,7 +230,8 @@ def get_doi_metadata(doi, cache):
         # 'published-online': {'date-parts': [[2009, 8, 30]]},
         # 'published-print': {'date-parts': [[1998, 1, 22]]}
         published = (doi_metadata.get('published-online') or
-                     doi_metadata.get('published-print'))
+                     doi_metadata.get('published-print') or
+                     doi_metadata.get('issued'))
         parts = published['date-parts'][0]
     except:
         parts = []
