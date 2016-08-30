@@ -233,7 +233,7 @@ def get_doi_metadata(doi, cache):
                      doi_metadata.get('published-print'))
         parts = published['date-parts'][0]
     except:
-        pass
+        parts = []
 
     try:
         metadata['year'] = parts[0]
