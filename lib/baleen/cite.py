@@ -230,7 +230,7 @@ def get_doi_metadata(doi, cache):
                      doi_metadata.get('published-print'))
         metadata['year'], metadata['month'], metadata['day'] = \
         published['date-parts'][0]
-    except (KeyError, IndexError, ValueError):
+    except:
         metadata['year'], metadata['month'], metadata['day'] = None, None, None
         log.warn('no publication date found for DOI {}'.format(doi))
 
