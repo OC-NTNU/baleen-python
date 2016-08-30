@@ -231,11 +231,25 @@ def get_doi_metadata(doi, cache):
         # 'published-print': {'date-parts': [[1998, 1, 22]]}
         published = (doi_metadata.get('published-online') or
                      doi_metadata.get('published-print'))
-        metadata['year'], metadata['month'], metadata['day'] = \
-        published['date-parts'][0]
+        parts = published['date-parts'][0]
     except:
-        metadata['year'], metadata['month'], metadata['day'] = None, None, None
+        pass
+
+    try:
+        metadata['year'] = parts[0]
+    except IndexError:
+        metadata['year'] = None
         log.warn('no publication date found for DOI {}'.format(doi))
+
+    try:
+        metadata['month'] = parts[1]
+    except IndexError:
+        metadata['month'] = None
+
+    try:
+        metadata['day'] = parts[2]
+    except IndexError:
+        metadata['day'] = None
 
     return metadata
 
