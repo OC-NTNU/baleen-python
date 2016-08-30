@@ -180,7 +180,8 @@ def add_metadata(warehouse_home, server_name, cache_dir,
                     a.year = {year},
                     a.month = {month},
                     a.day = {day},
-                    a.ISSN = {ISSN}
+                    a.ISSN = {ISSN},
+                    a.publisher = {publisher}
                 """, metadata)
 
         log.info('added metadata for DOI ' + doi)
@@ -216,7 +217,7 @@ def get_doi_metadata(doi, cache):
         metadata['ISSN'] = doi_metadata['ISSN'][0]
     except (KeyError, IndexError):
         metadata['ISSN'] = None
-        log.warn('no ISSN found for DOI {}'.format(key, doi))
+        log.warn('no ISSN found for DOI {}'.format(doi))
 
     try:
         metadata['journal'] = doi_metadata['container-title']
