@@ -191,8 +191,10 @@ def get_all_metadata(doi, cache):
     Get metadata for DOI, including metadata from ISSN
     """
     metadata = get_doi_metadata(doi, cache)
-    issn_metadata = get_issn_metadata(metadata['ISSN'], cache)
-    metadata.update(issn_metadata)
+    issn = metadata['ISSN']
+    if issn:
+        issn_metadata = get_issn_metadata(issn, cache)
+        metadata.update(issn_metadata)
     return metadata
 
 
