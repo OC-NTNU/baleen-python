@@ -124,7 +124,7 @@ def get_citation(doi, cache,
 
 
 def add_metadata(warehouse_home, server_name, cache_dir,
-                 resume=False, password=None):
+                 resume=False, password=None, online=True):
     """
     Add citation string to Article nodes
 
@@ -171,7 +171,7 @@ def add_metadata(warehouse_home, server_name, cache_dir,
 
     for rec in records:
         doi = rec['doi']
-        metadata = get_all_metadata(doi, cache)
+        metadata = get_all_metadata(doi, cache, online)
 
         session.run("""
                 MATCH (a:Article)
@@ -188,23 +188,23 @@ def add_metadata(warehouse_home, server_name, cache_dir,
         log.info('added metadata for DOI ' + doi)
 
 
-def get_all_metadata(doi, cache):
+def get_all_metadata(doi, cache, online=True):
     """
     Get metadata for DOI, including metadata from ISSN
     """
-    metadata = get_doi_metadata(doi, cache)
+    metadata = get_doi_metadata(doi, cache, online)
     issn = metadata['ISSN']
     if issn:
-        issn_metadata = get_issn_metadata(issn, cache)
+        issn_metadata = get_issn_metadata(issn, cache, online)
         metadata.update(issn_metadata)
     return metadata
 
 
-def get_doi_metadata(doi, cache):
+def get_doi_metadata(doi, cache, online=True):
     """
     Get metadata for DOI
     """
-    doi_metadata = request_doi_metadata(doi, cache)
+    doi_metadata = request_doi_metadata(doi, cache, online=online)
     metadata = {'doi': doi}
 
     for key in 'title', 'publisher':
@@ -256,7 +256,7 @@ def get_doi_metadata(doi, cache):
     return metadata
 
 
-def request_doi_metadata(doi, cache, attempts=10):
+def request_doi_metadata(doi, cache, attempts=10, online=True):
     """
     Request metadata for DOI from CrossRef
     """
@@ -264,6 +264,10 @@ def request_doi_metadata(doi, cache, attempts=10):
         return cache[doi]
     except KeyError:
         pass
+
+    if not online:
+        log.warn('skipping online lookup for DOI {}'.format(doi))
+        return {}
 
     headers = {'Accept': 'application/vnd.citationstyles.csl+json'}
 
@@ -283,11 +287,11 @@ def request_doi_metadata(doi, cache, attempts=10):
     return metadata
 
 
-def get_issn_metadata(issn, cache):
+def get_issn_metadata(issn, cache, online=True):
     """
     Get metadata for ISSN
     """
-    issn_metadata = request_issn_metadata(issn, cache)
+    issn_metadata = request_issn_metadata(issn, cache, online=online)
     metadata = {}
 
     try:
@@ -303,7 +307,7 @@ def get_issn_metadata(issn, cache):
     return metadata
 
 
-def request_issn_metadata(issn, cache, attempts=10):
+def request_issn_metadata(issn, cache, attempts=10, online=True):
     """
     Request metadata for ISSN from CrossRef
     """
@@ -311,6 +315,10 @@ def request_issn_metadata(issn, cache, attempts=10):
         return cache[issn]
     except KeyError:
         pass
+
+    if not online:
+        log.warn('skipping online lookup for ISSN {}'.format(issn))
+        return {}
 
     for i in range(attempts):
         response = requests.get(

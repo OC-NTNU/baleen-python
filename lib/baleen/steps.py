@@ -179,11 +179,12 @@ def add_cit(warehouse_home, server_name, cache_dir, resume=False,
 
 
 @arg('-r', '--resume', help='toggle default for resuming process')
+@arg('-o', '--online', help='toggle default for using online lookup')
 @docstring(cite.add_metadata)
 def add_meta(warehouse_home, server_name, cache_dir, resume=False,
-             password=None):
+             password=None, online=True):
     cite.add_metadata(warehouse_home, server_name, cache_dir, resume=resume,
-                      password=password)
+                      password=password, online=online)
 
 
 @docstring(cite.clean_metadata_cache)
