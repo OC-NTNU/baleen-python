@@ -147,6 +147,7 @@ def add_metadata(warehouse_home, server_name, cache_dir,
             MATCH (a:Article)
             WHERE ( a.title is NULL OR
                     a.journal is NULL OR
+                    a.publisher is NULL OR
                     a.year is NULL OR
                     a.ISSN is NULL )
             RETURN a.doi as doi"""
