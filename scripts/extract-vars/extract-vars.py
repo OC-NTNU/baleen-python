@@ -18,8 +18,10 @@ script(
            setup_server,
            toneo,
            ppgraph,
-           add_cit],
+           add_cit,
+           add_meta],
     optional=[remove_server,
               start_server,
               stop_server,
-              clean])
+              clean,
+              clean_cache])
