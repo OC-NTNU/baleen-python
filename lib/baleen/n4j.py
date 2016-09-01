@@ -6,12 +6,15 @@ import logging
 import subprocess
 import csv
 import json
+import time
 from path import Path
 
 from lxml import etree
 
 from neo4j.v1 import GraphDatabase, basic_auth
 import neokit
+
+from tabulate import tabulate
 
 from baleen.utils import derive_path, get_doi
 
@@ -516,3 +519,160 @@ def _doi2txt_fname(text_dir):
             doi2txt[doi] = p
 
     return doi2txt
+
+
+def graph_report(warehouse_home, server_name, password, top_n=50):
+    """
+    Report on graph database
+    """
+    session = get_session(warehouse_home, server_name, password)
+
+    def tq(query):
+        print_table(session.run(query))
+
+    print(time.asctime() + '\n')
+
+    print_section('Database')
+
+    version = (Path(warehouse_home).abspath() / 'run' / server_name).dirs('neo4j*')[0].basename()
+    print('Neo4j version: ' + version)
+    print('Warehouse home: ' + Path(warehouse_home).abspath())
+    print('Server name: ' + server_name)
+    print('Url: ' + session.driver.url)
+    print('Password protected: {}'.format(True if password else False))
+    print('Encrypted: {}'.format(session.driver.encrypted))
+    db_path = Path(warehouse_home).abspath() / 'run' / server_name / 'neo4j-community-*/data/databases'
+    size = subprocess.check_output('du -hs ' + db_path,
+                                   shell=True).decode('utf-8').split('\t')[0]
+    print('Database size: ' + size)
+    print()
+
+
+    print_section('Nodes')
+
+    tq("""
+        MATCH (n)
+        WITH labels(n) AS labels
+        UNWIND labels AS NodeLabel
+        RETURN DISTINCT NodeLabel, count(*) AS Count
+        ORDER BY NodeLabel
+        """)
+
+    tq("""
+        MATCH (n)
+        WITH labels(n) AS NodeLabels
+        RETURN DISTINCT NodeLabels, count(*) AS Count
+        ORDER BY Count
+        """)
+
+    total = list(session.run('MATCH (n) RETURN COUNT(*) AS Total'))[0]['Total']
+    print('Total number or nodes: {}\n'.format(total))
+
+    print_section('Relations')
+
+    tq("""
+        MATCH () -[r]- ()
+        RETURN DISTINCT TYPE(r) AS Relation, COUNT(*) AS Count
+        ORDER BY Relation
+        """)
+
+    total = list(session.run('MATCH () -[r]- () RETURN COUNT(*) AS Total'))[0][
+        'Total']
+    print('Total number or relations: {}\n'.format(total))
+
+    print_section('Articles')
+
+    tq("""
+        MATCH (a:Article)
+        RETURN DISTINCT a.journal as Journal, COUNT(*) as ArticleCount
+        ORDER BY ArticleCount DESC
+        """)
+
+    tq("""
+        MATCH (a:Article)
+        RETURN DISTINCT a.year as Year, COUNT(*) as ArticleCount
+        ORDER BY Year DESC
+        """)
+
+    tq("""
+        MATCH (a:Article)
+        RETURN DISTINCT a.publisher as Publisher, COUNT(*) as ArticleCount
+        ORDER BY Publisher
+        """)
+
+    print_section('Events')
+
+    print('Top {} event types:\n'.format(top_n))
+
+    tq("""
+        MATCH (ve:VarEvent)
+        WITH
+            CASE
+                WHEN "VarIncrease" IN labels(ve) THEN "Increase"
+                WHEN "VarDecrease" IN labels(ve) THEN "Decrease"
+                ELSE "Change"
+            END AS Event,
+            ve.subStr as Variable,
+            ve.n as Count
+        RETURN Event, Variable, Count
+        ORDER BY Count DESC
+        LIMIT {top_n}
+        """.format(top_n=top_n))
+
+    for event in 'Change', 'Increase', 'Decrease':
+        print('\nTop {} {} event type:\n'.format(top_n, event))
+        tq("""
+            MATCH (ve:{event})
+            WITH
+                ve.subStr as Variable,
+                ve.n as Count
+            RETURN Variable, Count
+            ORDER BY Count DESC
+            LIMIT {top_n}
+            """.format(event='Var' + event, top_n=top_n))
+
+    print_section('Co-occurrence')
+
+    print('Top {} co-occurring event types:\n'.format(top_n))
+
+    tq("""
+        MATCH
+            (ve1:VarEvent) -[r:COOCCURS]- (ve2:VarEvent)
+        WITH
+            CASE
+                WHEN "VarIncrease" IN labels(ve1) THEN "Increase"
+                WHEN "VarDecrease" IN labels(ve1) THEN "Decrease"
+                ELSE "Change"
+            END AS Event1,
+            ve1.subStr AS Variable1,
+
+            CASE
+                WHEN "VarIncrease" IN labels(ve2) THEN "Increase"
+                WHEN "VarDecrease" IN labels(ve2) THEN "Decrease"
+                ELSE "Change"
+            END AS Event2,
+            ve2.subStr AS Variable2,
+
+            r.n as Count
+        RETURN
+            Count,
+            Event1,
+            Variable1,
+            Event2,
+            Variable2
+            ORDER BY Count DESC
+            LIMIT 25
+        """.format(top_n=top_n))
+
+
+def print_table(result, headers=None):
+    if not headers:
+        headers = result.keys()
+    print(tabulate([r.values() for r in result], headers))
+    print()
+
+
+def print_section(title):
+    print(80 * '=')
+    print(title)
+    print(80 * '=' + '\n')

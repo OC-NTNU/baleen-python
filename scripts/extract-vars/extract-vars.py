@@ -24,4 +24,5 @@ script(
               start_server,
               stop_server,
               clean,
-              clean_cache])
+              clean_cache,
+              report])

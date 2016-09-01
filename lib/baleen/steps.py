@@ -157,6 +157,11 @@ def ppgraph(warehouse_home, server_name, password=None):
     n4j.postproc_graph(warehouse_home, server_name, password)
 
 
+@docstring(n4j.graph_report)
+def report(warehouse_home, server_name, password=None):
+    n4j.graph_report(warehouse_home, server_name, password)
+
+
 def clean(dir):
     """
     Clean output
