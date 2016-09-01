@@ -571,7 +571,7 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
     print_section('Relations')
 
     tq("""
-        MATCH () -[r]- ()
+        MATCH () -[r]-> ()
         RETURN DISTINCT TYPE(r) AS Relation, COUNT(*) AS Count
         ORDER BY Relation
         """)
@@ -637,7 +637,7 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
 
     tq("""
         MATCH
-            (ve1:VarEvent) -[r:COOCCURS]- (ve2:VarEvent)
+            (ve1:VarEvent) -[r:COOCCURS]-> (ve2:VarEvent)
         WITH
             CASE
                 WHEN "VarIncrease" IN labels(ve1) THEN "Increase"
@@ -661,7 +661,7 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
             Event2,
             Variable2
             ORDER BY Count DESC
-            LIMIT 25
+            LIMIT {top_n}
         """.format(top_n=top_n))
 
 
