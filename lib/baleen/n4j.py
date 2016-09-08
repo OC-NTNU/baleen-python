@@ -103,6 +103,7 @@ def setup_server(warehouse_home, server_name, edition=DEFAULT_EDITION,
 
 
 def remove_server(warehouse_home, server_name):
+    """remove neo4j server"""
     warehouse = neokit.Warehouse(warehouse_home)
     server = warehouse.get(server_name)
     if server.running():
@@ -192,8 +193,7 @@ def neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
 def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                 relation_csv_dir, max_n=None):
     """
-    Transform extracted variables to csv tables that can be imported
-    by neo4j
+    Transform extracted variables to csv tables that can be imported by neo4j
 
     Parameters
     ----------
@@ -534,19 +534,20 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
 
     print_section('Database')
 
-    version = (Path(warehouse_home).abspath() / 'run' / server_name).dirs('neo4j*')[0].basename()
+    version = ( Path(warehouse_home).abspath() / 'run' /
+                server_name).dirs('neo4j*')[0].basename()
     print('Neo4j version: ' + version)
     print('Warehouse home: ' + Path(warehouse_home).abspath())
     print('Server name: ' + server_name)
     print('Url: ' + session.driver.url)
     print('Password protected: {}'.format(True if password else False))
     print('Encrypted: {}'.format(session.driver.encrypted))
-    db_path = Path(warehouse_home).abspath() / 'run' / server_name / 'neo4j-community-*/data/databases'
+    db_path = ( Path(warehouse_home).abspath() / 'run' /
+                server_name / 'neo4j-community-*/data/databases' )
     size = subprocess.check_output('du -hs ' + db_path,
                                    shell=True).decode('utf-8').split('\t')[0]
     print('Database size: ' + size)
     print()
-
 
     print_section('Nodes')
 
