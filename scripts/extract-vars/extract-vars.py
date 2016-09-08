@@ -25,4 +25,6 @@ script(
               stop_server,
               clean,
               clean_cache,
-              report])
+              report,
+              tag_trees,
+              ext_rels])

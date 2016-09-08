@@ -2,9 +2,7 @@ from argh import arg
 
 from baleen.arghconfig import docstring
 
-from baleen import scnlp, vars
-from baleen import n4j
-from baleen import cite
+from baleen import scnlp, vars, n4j, cite, rels
 from baleen.utils import remove_any
 
 
@@ -195,3 +193,12 @@ def add_meta(warehouse_home, server_name, cache_dir, resume=False,
 @docstring(cite.clean_metadata_cache)
 def clean_cache(cache_dir):
     cite.clean_metadata_cache(cache_dir)
+
+
+@docstring(rels.tag_var_nodes)
+def tag_trees(vars_dir, trees_dir, tagged_dir):
+    rels.tag_var_nodes(vars_dir, trees_dir, tagged_dir)
+
+docstring(rels.extract_relations)
+def ext_rels(class_path, tagged_dir, pattern_path, rels_dir):
+    rels.extract_relations(class_path, tagged_dir, pattern_path, rels_dir)
