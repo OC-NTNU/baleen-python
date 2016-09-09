@@ -51,18 +51,29 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
                 # get NLTK-style indices for all nodes in a preorder
                 # traversal of the tree
                 positions = tree.treepositions()
+                vars_count = 0
 
                 for node_number, extract_name in pairs:
                     # node numbers in records count from one
                     position = positions[node_number - 1]
                     subtree = tree[position]
-                    subtree.set_label(
-                        '{}_VAR_{}:{}:{}'.format(subtree.label(),
-                                                 tree_number,
-                                                 node_number,
-                                                 extract_name))
+                    try:
+                        subtree.set_label(
+                            '{}_VAR_{}:{}:{}'.format(subtree.label(),
+                                                     tree_number,
+                                                     node_number,
+                                                     extract_name))
+                    except AttributeError:
+                        log.error('skipping variable "{}" because it is a leaf '
+                                  'node ({}:{}:{})'.format(subtree,
+                                                           lemtree_fname,
+                                                           tree_number,
+                                                           node_number))
+                    else:
+                        vars_count += 1
 
-                tagged_parses.append(tree.pformat(margin=99999))
+                if vars_count > 1:
+                    tagged_parses.append(tree.pformat(margin=99999))
 
         if tagged_parses:
             tagged_fname = derive_path(lemtree_fname, new_dir=tagged_dir)
