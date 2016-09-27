@@ -14,6 +14,7 @@ from nltk.tree import Tree
 from baleen.utils import derive_path
 
 log = logging.getLogger(__name__)
+log.setLevel('DEBUG')
 
 
 # TODO: doc strings
@@ -23,11 +24,17 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
     """
     Tag variable nodes in tree
 
-    Tag variables nodes in trees with "_VAR:n:m:e" suffix
-    where n is the tree number, m is the variable's node number and
+    Tag variables nodes in trees with "_VAR:f:n:m:e" suffix where
+    f is the name of the parse file,
+    n is the tree number,
+    m is the variable's node number and
     e is name of the pattern used for extracting this variable.
     Will only output those trees containing at least two variables.
     """
+    # At first I used the tregex's '-f' option to print the filename,
+    # but when traversing the files in a directory,
+    # it prints the wrong filenames (after the first one?),
+    # so now the filename is encoded in the node label too.
     tagged_dir = Path(tagged_dir)
     tagged_dir.makedirs_p()
 
@@ -37,7 +44,7 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
         # create a dict mapping each tree number to a list of
         # (nodeNumber, extractName) tuples for its variables
         for record in json.load(vars_fname.open()):
-            pair = record['nodeNumber'], record['extractName']
+            pair = record['nodeNumber'], record['key']
             d[record['treeNumber']].append(pair)
 
         lemtree_fname = record['filename']
@@ -53,22 +60,16 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
                 positions = tree.treepositions()
                 vars_count = 0
 
-                for node_number, extract_name in pairs:
+                for node_number, key in pairs:
                     # node numbers in records count from one
                     position = positions[node_number - 1]
                     subtree = tree[position]
                     try:
                         subtree.set_label(
-                            '{}_VAR_{}:{}:{}'.format(subtree.label(),
-                                                     tree_number,
-                                                     node_number,
-                                                     extract_name))
+                            '{}_VAR_{}'.format(subtree.label(), key))
                     except AttributeError:
                         log.error('skipping variable "{}" because it is a leaf '
-                                  'node ({}:{}:{})'.format(subtree,
-                                                           lemtree_fname,
-                                                           tree_number,
-                                                           node_number))
+                                  'node ({})'.format(subtree, key))
                     else:
                         vars_count += 1
 
@@ -94,7 +95,7 @@ def extract_relations(class_path,
     for pat_name, items in pat_defs.items():
         if pat_name != 'DEFAULT':
             relation = items['relation']
-            pattern = items['pattern']
+            pattern = items['pattern'].strip()
 
             matches = tregex(class_path, tagged_dir, pattern)
             parse_matches(matches, pat_name, relation, rel_records)
@@ -134,7 +135,7 @@ def tregex(class_path,
            '-Xmx{memory} '
            '-cp "{class_path}/*" '
            'edu.stanford.nlp.trees.tregex.TregexPattern '
-           '-f '  # print filename
+           # '-f '  # print filename
            '-u '  # print only node label, not complete subtrees
            '-h from '  # print node assigned to handle 'from'
            '-h to '  # print node assigned to handle 'to'
@@ -150,16 +151,32 @@ def tregex(class_path,
 
 
 def parse_matches(matches, pat_name, relation, rel_records):
-    for triple in matches.rstrip().split('# ')[1:]:
-        filename, from_node, to_node = triple.strip().split('\n')
-        filename = str(Path(filename).basename())
-        record = dict(
-            filename=filename,
-            fromNodeId=filename + ':' + from_node.split('_VAR_')[-1],
-            toNodeId=filename + ':' + to_node.split('_VAR_')[-1],
-            patternName=pat_name,
-            relation=relation)
-        rel_records[filename].append(record)
+    if matches:
+        lines = matches.strip().split('\n')
+        for i in range(0, len(lines), 2):
+            from_node, to_node = lines[i:i+2]
+            filename = from_node.split('_VAR_')[-1].split(':')[0]
+            record = dict(
+                filename=filename,
+                fromNodeId=from_node.split('_VAR_')[-1],
+                toNodeId=to_node.split('_VAR_')[-1],
+                patternName=pat_name,
+                relation=relation)
+            rel_records[filename].append(record)
+
+# Old version for use with '-f' option
+#
+# def parse_matches(matches, pat_name, relation, rel_records):
+#     for triple in matches.rstrip().split('# ')[1:]:
+#         filename, from_node, to_node = triple.strip().split('\n')
+#         filename = str(Path(filename).basename())
+#         record = dict(
+#             filename=filename,
+#             fromNodeId=filename + ':' + from_node.split('_VAR_')[-1],
+#             toNodeId=filename + ':' + to_node.split('_VAR_')[-1],
+#             patternName=pat_name,
+#             relation=relation)
+#         rel_records[filename].append(record)
 
 
 def write_relations(rel_records, rels_dir):
