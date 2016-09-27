@@ -665,6 +665,41 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
             LIMIT {top_n}
         """.format(top_n=top_n))
 
+    print_section('Causal relations')
+
+    print('Top {} causally related event types:\n'.format(top_n))
+
+    tq("""
+        MATCH
+            (ve1:VarEvent) -[r:CAUSES]-> (ve2:VarEvent)
+        WITH
+            CASE
+                WHEN "VarIncrease" IN labels(ve1) THEN "Increase"
+                WHEN "VarDecrease" IN labels(ve1) THEN "Decrease"
+                ELSE "Change"
+            END AS Event1,
+            ve1.subStr AS Variable1,
+
+            CASE
+                WHEN "VarIncrease" IN labels(ve2) THEN "Increase"
+                WHEN "VarDecrease" IN labels(ve2) THEN "Decrease"
+                ELSE "Change"
+            END AS Event2,
+            ve2.subStr AS Variable2,
+
+            r.n as Count
+        RETURN
+            Count,
+            Event1,
+            Variable1,
+            Event2,
+            Variable2
+            ORDER BY Count DESC
+            LIMIT {top_n}
+        """.format(top_n=top_n))
+
+
+
 
 def print_table(result, headers=None):
     if not headers:
