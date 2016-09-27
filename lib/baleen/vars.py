@@ -73,9 +73,10 @@ def preproc_vars(trans_exec, trans_fname, in_vars_dir, out_vars_dir,
         records = json.load(open(in_vars_fname))
         # Remove any var that has descendents
         # (i.e. from which a node was deleted)
-        # Also remove empty vars
+        # Also remove empty vars or "NP" vars
         out_vars_records = [rec for rec in records
-                            if rec['subStr'] and not 'descendants' in rec]
+                            if rec['subStr'] not in ['','NP'] and
+                            not 'descendants' in rec]
         if out_vars_fname:
             log.info('writing to preprocessed variable file ' + out_vars_fname)
             json.dump(out_vars_records, out_vars_fname.open('w'), indent=0)
