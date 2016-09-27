@@ -534,16 +534,16 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
 
     print_section('Database')
 
-    version = ( Path(warehouse_home).abspath() / 'run' /
-                server_name).dirs('neo4j*')[0].basename()
+    version = (Path(warehouse_home).abspath() / 'run' /
+               server_name).dirs('neo4j*')[0].basename()
     print('Neo4j version: ' + version)
     print('Warehouse home: ' + Path(warehouse_home).abspath())
     print('Server name: ' + server_name)
     print('Url: ' + session.driver.url)
     print('Password protected: {}'.format(True if password else False))
     print('Encrypted: {}'.format(session.driver.encrypted))
-    db_path = ( Path(warehouse_home).abspath() / 'run' /
-                server_name / 'neo4j-community-*/data/databases' )
+    db_path = (Path(warehouse_home).abspath() / 'run' /
+               server_name / 'neo4j-community-*/data/databases')
     size = subprocess.check_output('du -hs ' + db_path,
                                    shell=True).decode('utf-8').split('\t')[0]
     print('Database size: ' + size)
@@ -677,3 +677,39 @@ def print_section(title):
     print(80 * '=')
     print(title)
     print(80 * '=' + '\n')
+
+
+def add_relations(rels_dir, warehouse_home, server_name, password=None):
+    """
+    Add extracted causal relations to graph
+    """
+    add_effect_relations(rels_dir, warehouse_home, server_name, password)
+    add_causes_relations(rels_dir, warehouse_home, server_name, password)
+
+
+def add_effect_relations(rels_dir, warehouse_home, server_name, password=None):
+    session = get_session(warehouse_home, server_name, password)
+
+    for rel_fname in Path(rels_dir).files('*.json'):
+        log.info('adding HAS_EFFECT relations from file ' + rel_fname)
+        for rec in json.load(rel_fname.open()):
+            # TODO: multiple pattern names in case of multiple matches
+            r = session.run("""
+                MATCH (e1:Event {eventID: {fromNodeId}}), (e2:Event {eventID: {toNodeId}})
+                MERGE (e1) -[:HAS_EFFECT {patternName: {patternName}}]-> (e2)
+            """, rec)
+
+    session.close()
+
+
+def add_causes_relations(rels_dir, warehouse_home, server_name, password=None):
+    log.info('adding CAUSES relations')
+
+    session = get_session(warehouse_home, server_name, password)
+    session.run("""
+        MATCH (ve1:VarEvent) -[:INST]-> (:Event) -[:HAS_EFFECT]-> (:Event) <-[:INST]- (ve2:VarEvent)
+        WITH ve1, ve2, count(*) AS n
+        MERGE (ve1) -[:CAUSES {n: n}]-> (ve2)
+    """)
+
+    session.close()

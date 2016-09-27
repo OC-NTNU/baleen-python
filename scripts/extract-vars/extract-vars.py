@@ -18,6 +18,9 @@ script(
            setup_server,
            toneo,
            ppgraph,
+           tag_trees,
+           ext_rels,
+           add_rels,
            add_cit,
            add_meta],
     optional=[remove_server,
@@ -25,6 +28,4 @@ script(
               stop_server,
               clean,
               clean_cache,
-              report,
-              tag_trees,
-              ext_rels])
+              report])

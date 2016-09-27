@@ -199,6 +199,10 @@ def clean_cache(cache_dir):
 def tag_trees(vars_dir, trees_dir, tagged_dir):
     rels.tag_var_nodes(vars_dir, trees_dir, tagged_dir)
 
-docstring(rels.extract_relations)
+@docstring(rels.extract_relations)
 def ext_rels(class_path, tagged_dir, pattern_path, rels_dir):
     rels.extract_relations(class_path, tagged_dir, pattern_path, rels_dir)
+
+@docstring(n4j.add_relations)
+def add_rels(rels_dir, warehouse_home, server_name, password=None):
+    n4j.add_relations(rels_dir, warehouse_home, server_name, password)
