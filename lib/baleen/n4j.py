@@ -329,7 +329,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                                        'HAS_SENT'))
 
             event_id = rec['key']
-            event_labels = 'Event;' + rec['label'].capitalize()
+            event_labels = 'EventInst;' + rec['label'].capitalize() + 'Inst'
             events_csv.writerow((event_id,
                                  tree_fname,
                                  rec['nodeNumber'],
@@ -345,12 +345,12 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
             var_type = rec['subStr']
             if var_type not in variable_types:
                 variables_csv.writerow((var_type,
-                                        'Variable'))
+                                        'VariableType'))
                 variable_types.add(var_type)
 
             theme_csv.writerow((event_id,
                                 var_type,
-                                'THEME'))
+                                'OF'))
 
     # release opened files
     for f in open_files:
@@ -399,12 +399,12 @@ def postproc_graph(warehouse_home, server_name, password=None):
     """)
 
     session.run("""
-    CREATE CONSTRAINT ON (v:Variable)
+    CREATE CONSTRAINT ON (v:VariableType)
     ASSERT v.subStr IS UNIQUE
     """)
 
     session.run("""
-    CREATE CONSTRAINT ON (e:Event)
+    CREATE CONSTRAINT ON (e:EventInst)
     ASSERT e.eventID IS UNIQUE
     """)
 
@@ -417,69 +417,46 @@ def postproc_graph(warehouse_home, server_name, password=None):
 
     # TODO: merge these loops?
 
-    # For each changing/increasing/decreasing Variable,
-    # create a VarChange/VarIncrease/VarDecrease node and
-    # connect tthem with a VAR relation.
+    # For each changing/increasing/decreasing VariableType,
+    # create a ChangeType/IncreaseType/DecreaseType node and
+    # connect them with an OF relation.
+    # NB EventType nodes are therefore not unique.
     for event in events:
         session.run("""
-        MATCH (v:Variable) <-[:THEME]- (:{event})
-        MERGE (v) <-[:VAR]- (ve:Var{event}:VarEvent {{subStr: v.subStr}})
+        MATCH (v:VariableType) <-[:OF]- (:{event}Inst)
+        MERGE (v) <-[:OF]- (:EventType:{event}Type)
         """.format(event=event))
 
-    # Next connect each Change/Increase/Decrease event to the
-    # VarChange/VarIncrease/VarDecrease node of the event's variable,
-    # using an INST relation.
+    # For each combination of EventType & VariableType,
+    # compute the corresponding EventInst count
     for event in events:
         session.run("""
-        MATCH (ve:Var{event}) -[:VAR]-> (:Variable) <-[:THEME]- (e:{event})
-        MERGE (ve) -[:INST]-> (e)
+        MATCH (et:{event}Type) -[:OF]-> (v:VariableType) <-[:OF]- (:{event}Inst)
+        WITH et, count(*) AS n
+        SET et.n = n
         """.format(event=event))
-
-    # Compute the out-degree of the VarChange/VarIncrease/VarDecrease nodes
-    # on the INST relation, where n represents the number of
-    # changing/increasing/decreasing events
-    for event in events:
-        session.run("""
-        MATCH (ve:Var{event}) -[:INST]-> (:{event})
-        WITH ve, count(*) AS n
-        SET ve.n = n
-        """.format(event=event))
-
-    # impose more constraints
-    session.run("""
-    CREATE CONSTRAINT ON (ve:VarChange)
-    ASSERT ve.subStr IS UNIQUE
-    """)
-
-    session.run("""
-    CREATE CONSTRAINT ON (ve:VarIncrease)
-    ASSERT ve.subStr IS UNIQUE
-    """)
-
-    session.run("""
-    CREATE CONSTRAINT ON (ve:VarDecrease)
-    ASSERT ve.subStr IS UNIQUE
-    """)
-
-    # create index on VarEvent (where subStr is not unique)
-    session.run("CREATE INDEX ON :VarEvent(subStr)")
 
     # -----------------------------------------------------------------------------
     # Create co-occurrence relations
     # -----------------------------------------------------------------------------
     log.info('creating co-occurrence relations')
 
-    # Compute how many times a pair of VarChange/VarIncrease/VarDecrease
+    # Compute how many times a combination of
+    # ChangeType/IncreaseType/DecreaseType & VariableType
     # co-occur in the same sentence.
-    # The id(ve1) < id(ve2) statements prevents counting co-occurence twice
+    # The id(et1) < id(et2) statement prevents counting co-occurence twice
     # (because matching is symmetrical).
     # Store co-occurrence frequency on a new COOCCURS edge.
+
     session.run("""
-        MATCH (ve1:VarEvent) -[:INST]-> (:Event) <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]-> (:Event) <-[:INST]- (ve2:VarEvent)
-        WHERE id(ve1) < id(ve2)
-        WITH ve1, ve2, count(*) AS n
-        MERGE (ve1) -[:COOCCURS {n: n}]-> (ve2)
-    """)
+            MATCH
+                (et1:EventType) -[:OF]-> (:VariableType) <-[:OF]- (:EventInst)
+                <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
+                (:EventInst) -[:OF]-> (:VariableType) <-[:OF]- (et2:EventType)
+            WHERE id(et1) < id(et2)
+            WITH et1, et2, count(*) AS n
+            MERGE (et1) -[:COOCCURS {n: n}]-> (et2)
+        """)
 
     session.close()
 
