@@ -262,13 +262,14 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                                   'extractName',
                                   'charOffsetBegin:int',
                                   'charOffsetEnd:int',
+                                  'direction',
                                   ':LABEL'))
 
     # create csv files for relations
     has_sent_csv = create_csv_file(relation_csv_dir,
                                    'has_sent.csv')
-    theme_csv = create_csv_file(relation_csv_dir,
-                                'theme.csv')
+    has_var_csv = create_csv_file(relation_csv_dir,
+                                  'has_var.csv')
     has_event_csv = create_csv_file(relation_csv_dir,
                                     'has_event.csv')
 
@@ -336,6 +337,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                                  rec['extractName'],
                                  rec['charOffsetBegin'],
                                  rec['charOffsetEnd'],
+                                 rec['label'],
                                  event_labels))
 
             has_event_csv.writerow((sent_id,
@@ -348,9 +350,9 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                                         'VariableType'))
                 variable_types.add(var_type)
 
-            theme_csv.writerow((event_id,
-                                var_type,
-                                'OF'))
+            has_var_csv.writerow((event_id,
+                                  var_type,
+                                  'HAS_VAR'))
 
     # release opened files
     for f in open_files:
@@ -419,22 +421,34 @@ def postproc_graph(warehouse_home, server_name, password=None):
 
     # For each changing/increasing/decreasing VariableType,
     # create a ChangeType/IncreaseType/DecreaseType node and
-    # connect them with an OF relation.
-    # NB EventType nodes are therefore not unique.
+    # connect them with an HAS_VAR relation.
+    # EventType nodes are therefore not unique.
+    # The redundant "direction" property is to facilitate matching of
+    # IncreaseInst to IncreaseType nodes, DecreaseInst to DecreaseType nodes,
+    # etc.
+    # Python string formatting is used because labels can not be parametrized
+    # in Cypher:
+    # http://stackoverflow.com/questions/24274364/in-neo4j-how-to-set-the-label-as-a-parameter-in-a-cypher-query-from-java
     for event in events:
         session.run("""
-        MATCH (v:VariableType) <-[:OF]- (:{event}Inst)
-        MERGE (v) <-[:OF]- (:EventType:{event}Type)
+        MATCH
+            (v:VariableType) <-[:HAS_VAR]- (ei:{event}Inst)
+        MERGE
+            (v) <-[:HAS_VAR]- (:EventType:{event}Type {{direction: ei.direction}})
         """.format(event=event))
 
     # For each combination of EventType & VariableType,
-    # compute the corresponding EventInst count
-    for event in events:
-        session.run("""
-        MATCH (et:{event}Type) -[:OF]-> (v:VariableType) <-[:OF]- (:{event}Inst)
-        WITH et, count(*) AS n
-        SET et.n = n
-        """.format(event=event))
+    # compute the corresponding EventInst count.
+    session.run("""
+    MATCH
+        (et:EventType) -[:HAS_VAR]-> (v:VariableType) <-[:HAS_VAR]- (ei:EventInst)
+    WHERE
+        et.direction = ei.direction
+    WITH
+        et, count(*) AS n
+    SET
+        et.n = n
+    """)
 
     # -----------------------------------------------------------------------------
     # Create co-occurrence relations
@@ -449,13 +463,18 @@ def postproc_graph(warehouse_home, server_name, password=None):
     # Store co-occurrence frequency on a new COOCCURS edge.
 
     session.run("""
-            MATCH
-                (et1:EventType) -[:OF]-> (:VariableType) <-[:OF]- (:EventInst)
-                <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
-                (:EventInst) -[:OF]-> (:VariableType) <-[:OF]- (et2:EventType)
-            WHERE id(et1) < id(et2)
-            WITH et1, et2, count(*) AS n
-            MERGE (et1) -[:COOCCURS {n: n}]-> (et2)
+    MATCH
+        (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
+        <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
+        (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
+    WHERE
+        et1.direction = ei1.direction AND
+        et2.direction = ei2.direction AND
+        id(et1) < id(et2)
+    WITH
+        et1, et2, count(*) AS n
+    MERGE
+        (et1) -[:COOCCURS {n: n}]-> (et2)
         """)
 
     session.close()
@@ -676,8 +695,6 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
         """.format(top_n=top_n))
 
 
-
-
 def print_table(result, headers=None):
     if not headers:
         headers = result.keys()
@@ -695,20 +712,27 @@ def add_relations(rels_dir, warehouse_home, server_name, password=None):
     """
     Add extracted causal relations to graph
     """
-    add_effect_relations(rels_dir, warehouse_home, server_name, password)
+    add_causation_instances(rels_dir, warehouse_home, server_name, password)
     add_causes_relations(rels_dir, warehouse_home, server_name, password)
 
 
-def add_effect_relations(rels_dir, warehouse_home, server_name, password=None):
+def add_causation_instances(rels_dir, warehouse_home, server_name,
+                            password=None):
     session = get_session(warehouse_home, server_name, password)
 
     for rel_fname in Path(rels_dir).files('*.json'):
-        log.info('adding HAS_EFFECT relations from file ' + rel_fname)
+        log.info('adding CausationInst from file ' + rel_fname)
         for rec in json.load(rel_fname.open()):
             # TODO: multiple pattern names in case of multiple matches
             r = session.run("""
-                MATCH (e1:Event {eventID: {fromNodeId}}), (e2:Event {eventID: {toNodeId}})
-                MERGE (e1) -[:HAS_EFFECT {patternName: {patternName}}]-> (e2)
+            MATCH
+                (e1:EventInst), (e2:EventInst)
+            WHERE
+                e1.eventID = {fromNodeId} AND e2.eventID = {toNodeId}
+            MERGE
+                (e1) <-[:HAS_CAUSE]-
+                (:CausationInst {patternName: {patternName}})
+                -[:HAS_EFFECT]-> (e2)
             """, rec)
 
     session.close()
@@ -719,9 +743,17 @@ def add_causes_relations(rels_dir, warehouse_home, server_name, password=None):
 
     session = get_session(warehouse_home, server_name, password)
     session.run("""
-        MATCH (ve1:VarEvent) -[:INST]-> (:Event) -[:HAS_EFFECT]-> (:Event) <-[:INST]- (ve2:VarEvent)
-        WITH ve1, ve2, count(*) AS n
-        MERGE (ve1) -[:CAUSES {n: n}]-> (ve2)
+        MATCH
+            (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
+            <-[:HAS_CAUSE]- (:CausationInst) -[:HAS_EFFECT]->
+            (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
+        WHERE
+            et1.direction = ei1.direction AND
+            et2.direction = ei2.direction
+        WITH
+            et1, et2, count(*) AS n
+        MERGE
+            (et1) -[:CAUSES {n: n}]-> (et2)
     """)
 
     session.close()
