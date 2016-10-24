@@ -80,7 +80,7 @@ def get_citation(doi, cache,
                  style='chicago-fullnote-bibliography',
                  strip_doi=True):
     """
-    Get citation string for DOI from CrossRef
+    Get formatted citation string for DOI from CrossRef
 
     Parameters
     ----------
@@ -126,7 +126,7 @@ def get_citation(doi, cache,
 def add_metadata(warehouse_home, server_name, cache_dir,
                  resume=False, password=None, online=True):
     """
-    Add citation string to Article nodes
+    Add article metadata to Article nodes
 
     Parameters
     ----------
