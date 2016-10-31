@@ -1,0 +1,14 @@
+name: baleen
+dependencies:
+- python=3
+- lxml
+- nltk
+- path.py
+- pickleshare
+- pip
+- requests
+- pip:
+  - argh
+  - neo4j-driver
+  - py2neo
+  - tabulate
