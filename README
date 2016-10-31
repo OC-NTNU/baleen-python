@@ -1,0 +1,60 @@
+baleen-python
+
+Python part of library from text mining of scientific literature
+
+https://github.com/OC-NTNU/baleen-python
+
+Copyright Erwin Marsi
+2016
+
+
+
+--------------------------------------------------------------------------------
+Requirements
+--------------------------------------------------------------------------------
+
+1. CoreNLP Java library from http://stanfordnlp.github.io/CoreNLP/download.html
+
+2. baleen-java from https://github.com/OC-NTNU/baleen-java
+
+
+--------------------------------------------------------------------------------
+Setup
+--------------------------------------------------------------------------------
+
+1. Install Anaconda Python distibution from https://www.continuum.io/downloads
+
+2. Create virtual Python environment called 'baleen'
+
+	$ conda env create -f environment.yml
+
+3. Clone git repos
+
+	$ git clone https://github.com/OC-NTNU/baleen-python.git
+
+4. Copy etc/local-sample.ini to etc/local.ini.
+   Modify the paths acording to your local setup.
+
+
+--------------------------------------------------------------------------------
+Activate
+--------------------------------------------------------------------------------
+
+To activate the balen Python environment, run
+
+	$ source setup_env.sh
+
+
+To deactivate afterwwards, run
+
+    # $ source deactivate
+
+
+--------------------------------------------------------------------------------
+Test
+--------------------------------------------------------------------------------
+
+	$ cd scripts/extract-vars/
+	$ ./extract-vars run-all
+
+

@@ -262,17 +262,24 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                                   'extractName',
                                   'charOffsetBegin:int',
                                   'charOffsetEnd:int',
+                                  'direction',
                                   ':LABEL'))
 
     # create csv files for relations
     has_sent_csv = create_csv_file(relation_csv_dir,
                                    'has_sent.csv')
-    theme_csv = create_csv_file(relation_csv_dir,
-                                'theme.csv')
+    has_var_csv = create_csv_file(relation_csv_dir,
+                                  'has_var.csv')
     has_event_csv = create_csv_file(relation_csv_dir,
                                     'has_event.csv')
+    tentails_var_csv = create_csv_file(relation_csv_dir,
+                                       'tentails_var.csv',
+                                       (':START_ID',
+                                        ':END_ID',
+                                        'transformName',
+                                        ':TYPE'))
 
-    # global set of all variable types (i.e. subStr) in collection
+    # set of all variable types in text collection
     variable_types = set()
 
     # mapping from DOI to text files
@@ -308,6 +315,10 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
 
         tree_number = None
 
+        # mapping of record's "key" to "subStr" attribute,
+        # needed for TENTAILS_VAR relation
+        key2var = {}
+
         for rec in records:
             if rec['treeNumber'] != tree_number:
                 # moving to new tree
@@ -328,29 +339,43 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                                        sent_id,
                                        'HAS_SENT'))
 
-            event_id = rec['key']
-            event_labels = 'Event;' + rec['label'].capitalize()
-            events_csv.writerow((event_id,
-                                 tree_fname,
-                                 rec['nodeNumber'],
-                                 rec['extractName'],
-                                 rec['charOffsetBegin'],
-                                 rec['charOffsetEnd'],
-                                 event_labels))
+            key2var[rec['key']] = var_type = rec['subStr']
 
-            has_event_csv.writerow((sent_id,
-                                    event_id,
-                                    'HAS_EVENT'))
-
-            var_type = rec['subStr']
             if var_type not in variable_types:
                 variables_csv.writerow((var_type,
-                                        'Variable'))
+                                        'VariableType'))
                 variable_types.add(var_type)
 
-            theme_csv.writerow((event_id,
-                                var_type,
-                                'THEME'))
+            # FIXME weak method of detecting preprocessing
+            if ('transformName' in rec and
+                    not rec['transformName'].startswith('PreProc')):
+                # variable is transformed, but not by preprocessing,
+                # so it is tentailed
+                ancestor_var_type = key2var[rec['ancestor']]
+                tentails_var_csv.writerow((ancestor_var_type,
+                                           var_type,
+                                           rec['transformName'],
+                                           'TENTAILS_VAR'))
+            else:
+                # observed event
+                event_id = rec['key']
+                event_labels = 'EventInst;' + rec['label'].capitalize() + 'Inst'
+                events_csv.writerow((event_id,
+                                     tree_fname,
+                                     rec['nodeNumber'],
+                                     rec['extractName'],
+                                     rec['charOffsetBegin'],
+                                     rec['charOffsetEnd'],
+                                     rec['label'],
+                                     event_labels))
+
+                has_event_csv.writerow((sent_id,
+                                        event_id,
+                                        'HAS_EVENT'))
+
+                has_var_csv.writerow((event_id,
+                                      var_type,
+                                      'HAS_VAR'))
 
     # release opened files
     for f in open_files:
@@ -361,7 +386,7 @@ def postproc_graph(warehouse_home, server_name, password=None):
     """
     Post-process graph after import.
 
-    Creates VarChange/VarIncrease/VarDecrease aggregation nodes,
+    Creates ChangeType/IncreaseType/DecreaseType aggregation nodes,
     creates co-occurrence relations and
     imposes constraints and indices.
 
@@ -377,9 +402,9 @@ def postproc_graph(warehouse_home, server_name, password=None):
     """
     session = get_session(warehouse_home, server_name, password)
 
-    # -----------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Constraints
-    # -----------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     log.info('creating constraints')
 
     # Create a unique property constraint on the label and property combination.
@@ -399,87 +424,130 @@ def postproc_graph(warehouse_home, server_name, password=None):
     """)
 
     session.run("""
-    CREATE CONSTRAINT ON (v:Variable)
+    CREATE CONSTRAINT ON (v:VariableType)
     ASSERT v.subStr IS UNIQUE
     """)
 
     session.run("""
-    CREATE CONSTRAINT ON (e:Event)
+    CREATE CONSTRAINT ON (e:EventInst)
     ASSERT e.eventID IS UNIQUE
     """)
 
-    # -----------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
+    # Remove TENTAILS_VAR edge duplicates
+    # --------------------------------------------------------------------------
+    log.info('removing TENTAILS_VAR edge duplicates (if any)')
+
+    session.run("""
+    MATCH
+        (v1)-[r:TENTAILS_VAR]->(v2)
+    WITH
+        v1, v2, TAIL (COLLECT (r)) as duplicates
+    FOREACH
+        (r IN duplicates | DELETE r)
+    """)
+
+    # --------------------------------------------------------------------------
+    # Removing non-branching tentailed variables nodes
+    # --------------------------------------------------------------------------
+    # For example, in
+    #
+    #     (global marine primary production) -[:TENTAILS_VAR]->
+    #     (marine primary production) -[:TENTAILS_VAR]->
+    #     (primary production) -[:TENTAILS_VAR]->
+    #     (production)
+    #
+    # The two nodes in the middle are deleted, unless they have tentailed
+    # relations to other nodes (i.e. more than one -[:TENTAILS_VAR]- relation),
+    # or occur in observed events (i.e. have a -[:HAS_VAR]- relation).
+
+    log.info('removing non-branching tentailed variables nodes (if any)')
+
+    session.run("""
+    MATCH
+        (v:VariableType)
+    WITH
+         v,
+         size(()-[:TENTAILS_VAR]->(v)) as inDegree,
+         size((v)-[:TENTAILS_VAR]->()) as outDegree
+    WHERE
+         inDegree = 1 AND
+         outDegree = 1 AND
+         NOT (v)<-[:HAS_VAR]-()
+    MATCH
+         (vIn)-[:TENTAILS_VAR]->(v)-[:TENTAILS_VAR]->(vOut)
+    DETACH DELETE
+         v
+    CREATE
+         (vIn)-[:TENTAILS_VAR]->(vOut)
+    """)
+
+    # --------------------------------------------------------------------------
     # Create event aggregation nodes
-    # -----------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     log.info('creating event aggregation nodes')
 
     events = ('Change', 'Increase', 'Decrease')
 
     # TODO: merge these loops?
 
-    # For each changing/increasing/decreasing Variable,
-    # create a VarChange/VarIncrease/VarDecrease node and
-    # connect tthem with a VAR relation.
+    # For each changing/increasing/decreasing VariableType,
+    # create a ChangeType/IncreaseType/DecreaseType node and
+    # connect them with an HAS_VAR relation.
+    # EventType nodes are therefore not unique.
+    # The redundant "direction" property is to facilitate matching of
+    # IncreaseInst to IncreaseType nodes, DecreaseInst to DecreaseType nodes,
+    # etc.
+    # Python string formatting is used because labels can not be parametrized
+    # in Cypher:
+    # http://stackoverflow.com/questions/24274364/in-neo4j-how-to-set-the-label-as-a-parameter-in-a-cypher-query-from-java
     for event in events:
         session.run("""
-        MATCH (v:Variable) <-[:THEME]- (:{event})
-        MERGE (v) <-[:VAR]- (ve:Var{event}:VarEvent {{subStr: v.subStr}})
+        MATCH
+            (v:VariableType) <-[:HAS_VAR]- (ei:{event}Inst)
+        MERGE
+            (v) <-[:HAS_VAR]- (:EventType:{event}Type {{direction: ei.direction}})
         """.format(event=event))
 
-    # Next connect each Change/Increase/Decrease event to the
-    # VarChange/VarIncrease/VarDecrease node of the event's variable,
-    # using an INST relation.
-    for event in events:
-        session.run("""
-        MATCH (ve:Var{event}) -[:VAR]-> (:Variable) <-[:THEME]- (e:{event})
-        MERGE (ve) -[:INST]-> (e)
-        """.format(event=event))
-
-    # Compute the out-degree of the VarChange/VarIncrease/VarDecrease nodes
-    # on the INST relation, where n represents the number of
-    # changing/increasing/decreasing events
-    for event in events:
-        session.run("""
-        MATCH (ve:Var{event}) -[:INST]-> (:{event})
-        WITH ve, count(*) AS n
-        SET ve.n = n
-        """.format(event=event))
-
-    # impose more constraints
+    # For each combination of EventType & VariableType,
+    # compute the corresponding EventInst count.
     session.run("""
-    CREATE CONSTRAINT ON (ve:VarChange)
-    ASSERT ve.subStr IS UNIQUE
+    MATCH
+        (et:EventType) -[:HAS_VAR]-> (v:VariableType) <-[:HAS_VAR]- (ei:EventInst)
+    WHERE
+        et.direction = ei.direction
+    WITH
+        et, count(*) AS n
+    SET
+        et.n = n
     """)
 
-    session.run("""
-    CREATE CONSTRAINT ON (ve:VarIncrease)
-    ASSERT ve.subStr IS UNIQUE
-    """)
-
-    session.run("""
-    CREATE CONSTRAINT ON (ve:VarDecrease)
-    ASSERT ve.subStr IS UNIQUE
-    """)
-
-    # create index on VarEvent (where subStr is not unique)
-    session.run("CREATE INDEX ON :VarEvent(subStr)")
-
-    # -----------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # Create co-occurrence relations
-    # -----------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     log.info('creating co-occurrence relations')
 
-    # Compute how many times a pair of VarChange/VarIncrease/VarDecrease
+    # Compute how many times a combination of
+    # ChangeType/IncreaseType/DecreaseType & VariableType
     # co-occur in the same sentence.
-    # The id(ve1) < id(ve2) statements prevents counting co-occurence twice
+    # The id(et1) < id(et2) statement prevents counting co-occurence twice
     # (because matching is symmetrical).
     # Store co-occurrence frequency on a new COOCCURS edge.
+
     session.run("""
-        MATCH (ve1:VarEvent) -[:INST]-> (:Event) <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]-> (:Event) <-[:INST]- (ve2:VarEvent)
-        WHERE id(ve1) < id(ve2)
-        WITH ve1, ve2, count(*) AS n
-        MERGE (ve1) -[:COOCCURS {n: n}]-> (ve2)
-    """)
+    MATCH
+        (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
+        <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
+        (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
+    WHERE
+        et1.direction = ei1.direction AND
+        et2.direction = ei2.direction AND
+        id(et1) < id(et2)
+    WITH
+        et1, et2, count(*) AS n
+    MERGE
+        (et1) -[:COOCCURS {n: n}]-> (et2)
+        """)
 
     session.close()
 
@@ -606,15 +674,15 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
     print('Top {} event types:\n'.format(top_n))
 
     tq("""
-        MATCH (ve:VarEvent)
+        MATCH (et:EventType) -[:HAS_VAR]-> (v:VariableType)
         WITH
             CASE
-                WHEN "VarIncrease" IN labels(ve) THEN "Increase"
-                WHEN "VarDecrease" IN labels(ve) THEN "Decrease"
+                WHEN "IncreaseType" IN labels(et) THEN "Increase"
+                WHEN "DecreaseType" IN labels(et) THEN "Decrease"
                 ELSE "Change"
             END AS Event,
-            ve.subStr as Variable,
-            ve.n as Count
+            v.subStr as Variable,
+            et.n as Count
         RETURN Event, Variable, Count
         ORDER BY Count DESC
         LIMIT {top_n}
@@ -623,14 +691,14 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
     for event in 'Change', 'Increase', 'Decrease':
         print('\nTop {} {} event type:\n'.format(top_n, event))
         tq("""
-            MATCH (ve:{event})
+            MATCH (et:{event}Type) -[:HAS_VAR]-> (v:VariableType)
             WITH
-                ve.subStr as Variable,
-                ve.n as Count
+                v.subStr as Variable,
+                et.n as Count
             RETURN Variable, Count
             ORDER BY Count DESC
             LIMIT {top_n}
-            """.format(event='Var' + event, top_n=top_n))
+            """.format(event=event, top_n=top_n))
 
     print_section('Co-occurrence')
 
@@ -638,21 +706,23 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
 
     tq("""
         MATCH
-            (ve1:VarEvent) -[r:COOCCURS]-> (ve2:VarEvent)
+            (v1:VariableType) <-[:HAS_VAR]- (ve1:EventType)
+            -[r:COOCCURS]->
+            (ve2:EventType) -[:HAS_VAR]-> (v2:VariableType)
         WITH
             CASE
-                WHEN "VarIncrease" IN labels(ve1) THEN "Increase"
-                WHEN "VarDecrease" IN labels(ve1) THEN "Decrease"
+                WHEN "IncreaseType" IN labels(ve1) THEN "Increase"
+                WHEN "DecreaseType" IN labels(ve1) THEN "Decrease"
                 ELSE "Change"
             END AS Event1,
-            ve1.subStr AS Variable1,
+            v1.subStr AS Variable1,
 
             CASE
-                WHEN "VarIncrease" IN labels(ve2) THEN "Increase"
-                WHEN "VarDecrease" IN labels(ve2) THEN "Decrease"
+                WHEN "IncreaseType" IN labels(ve2) THEN "Increase"
+                WHEN "DecreaseType" IN labels(ve2) THEN "Decrease"
                 ELSE "Change"
             END AS Event2,
-            ve2.subStr AS Variable2,
+            v2.subStr AS Variable2,
 
             r.n as Count
         RETURN
@@ -671,21 +741,23 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
 
     tq("""
         MATCH
-            (ve1:VarEvent) -[r:CAUSES]-> (ve2:VarEvent)
+            (v1:VariableType) <-[:HAS_VAR]- (ve1:EventType)
+            -[r:CAUSES]->
+            (ve2:EventType) -[:HAS_VAR]-> (v2:VariableType)
         WITH
             CASE
-                WHEN "VarIncrease" IN labels(ve1) THEN "Increase"
-                WHEN "VarDecrease" IN labels(ve1) THEN "Decrease"
+                WHEN "IncreaseType" IN labels(ve1) THEN "Increase"
+                WHEN "DecreaseType" IN labels(ve1) THEN "Decrease"
                 ELSE "Change"
             END AS Event1,
-            ve1.subStr AS Variable1,
+            v1.subStr AS Variable1,
 
             CASE
-                WHEN "VarIncrease" IN labels(ve2) THEN "Increase"
-                WHEN "VarDecrease" IN labels(ve2) THEN "Decrease"
+                WHEN "IncreaseType" IN labels(ve2) THEN "Increase"
+                WHEN "DecreaseType" IN labels(ve2) THEN "Decrease"
                 ELSE "Change"
             END AS Event2,
-            ve2.subStr AS Variable2,
+            v2.subStr AS Variable2,
 
             r.n as Count
         RETURN
@@ -697,8 +769,6 @@ def graph_report(warehouse_home, server_name, password, top_n=50):
             ORDER BY Count DESC
             LIMIT {top_n}
         """.format(top_n=top_n))
-
-
 
 
 def print_table(result, headers=None):
@@ -718,20 +788,27 @@ def add_relations(rels_dir, warehouse_home, server_name, password=None):
     """
     Add extracted causal relations to graph
     """
-    add_effect_relations(rels_dir, warehouse_home, server_name, password)
+    add_causation_instances(rels_dir, warehouse_home, server_name, password)
     add_causes_relations(rels_dir, warehouse_home, server_name, password)
 
 
-def add_effect_relations(rels_dir, warehouse_home, server_name, password=None):
+def add_causation_instances(rels_dir, warehouse_home, server_name,
+                            password=None):
     session = get_session(warehouse_home, server_name, password)
 
     for rel_fname in Path(rels_dir).files('*.json'):
-        log.info('adding HAS_EFFECT relations from file ' + rel_fname)
+        log.info('adding CausationInst from file ' + rel_fname)
         for rec in json.load(rel_fname.open()):
             # TODO: multiple pattern names in case of multiple matches
             r = session.run("""
-                MATCH (e1:Event {eventID: {fromNodeId}}), (e2:Event {eventID: {toNodeId}})
-                MERGE (e1) -[:HAS_EFFECT {patternName: {patternName}}]-> (e2)
+            MATCH
+                (e1:EventInst), (e2:EventInst)
+            WHERE
+                e1.eventID = {fromNodeId} AND e2.eventID = {toNodeId}
+            MERGE
+                (e1) <-[:HAS_CAUSE]-
+                (:CausationInst {patternName: {patternName}})
+                -[:HAS_EFFECT]-> (e2)
             """, rec)
 
     session.close()
@@ -742,9 +819,17 @@ def add_causes_relations(rels_dir, warehouse_home, server_name, password=None):
 
     session = get_session(warehouse_home, server_name, password)
     session.run("""
-        MATCH (ve1:VarEvent) -[:INST]-> (:Event) -[:HAS_EFFECT]-> (:Event) <-[:INST]- (ve2:VarEvent)
-        WITH ve1, ve2, count(*) AS n
-        MERGE (ve1) -[:CAUSES {n: n}]-> (ve2)
+        MATCH
+            (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
+            <-[:HAS_CAUSE]- (:CausationInst) -[:HAS_EFFECT]->
+            (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
+        WHERE
+            et1.direction = ei1.direction AND
+            et2.direction = ei2.direction
+        WITH
+            et1, et2, count(*) AS n
+        MERGE
+            (et1) -[:CAUSES {n: n}]-> (et2)
     """)
 
     session.close()
