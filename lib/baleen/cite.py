@@ -19,7 +19,7 @@ logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(
 
 
 def add_citations(warehouse_home, server_name, cache_dir,
-                  resume=False, password=None):
+                  resume=False, password=None, online=True):
     """
     Add citation string to Article nodes
 
@@ -65,7 +65,7 @@ def add_citations(warehouse_home, server_name, cache_dir,
 
     for rec in records:
         doi = rec['doi']
-        citation = get_citation(doi, cache)
+        citation = get_citation(doi, cache, online)
 
         if citation:
             session.run("""
@@ -78,7 +78,7 @@ def add_citations(warehouse_home, server_name, cache_dir,
 
 def get_citation(doi, cache,
                  style='chicago-fullnote-bibliography',
-                 strip_doi=True):
+                 strip_doi=True, online=True):
     """
     Get formatted citation string for DOI from CrossRef
 
@@ -97,6 +97,10 @@ def get_citation(doi, cache,
         return cache[doi]
     except KeyError:
         pass
+
+    if not online:
+        log.warn('skipping online lookup of citation for DOI {}'.format(doi))
+        return
 
     headers = {'Accept': 'text/bibliography; style={}'.format(style)}
     attempts = 10
@@ -336,7 +340,6 @@ def request_issn_metadata(issn, cache, attempts=10, online=True):
     return message
 
 
-
 def clean_metadata_cache(cache_dir):
     """
     Remove records with None values from metadata cache
@@ -359,9 +362,3 @@ def clean_metadata_cache(cache_dir):
     for key in to_delete:
         log.info('removing incomplete cached metadata for key {}'.format(key))
         del cache[key]
-
-
-
-
-
-

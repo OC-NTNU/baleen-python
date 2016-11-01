@@ -174,11 +174,12 @@ stop_server = n4j.stop_server
 
 
 @arg('-r', '--resume', help='toggle default for resuming process')
+@arg('-o', '--online', help='toggle default for using online lookup')
 @docstring(cite.add_citations)
 def add_cit(warehouse_home, server_name, cache_dir, resume=False,
-            password=None):
+            password=None, online=True):
     cite.add_citations(warehouse_home, server_name, cache_dir, resume=resume,
-                       password=password)
+                       password=password, online=online)
 
 
 @arg('-r', '--resume', help='toggle default for resuming process')
