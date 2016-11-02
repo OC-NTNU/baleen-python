@@ -65,7 +65,7 @@ def add_citations(warehouse_home, server_name, cache_dir,
 
     for rec in records:
         doi = rec['doi']
-        citation = get_citation(doi, cache, online)
+        citation = get_citation(doi, cache, online=online)
 
         if citation:
             session.run("""
