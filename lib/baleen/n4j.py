@@ -789,7 +789,7 @@ def add_relations(rels_dir, warehouse_home, server_name, password=None):
     Add extracted causal relations to graph
     """
     add_causation_instances(rels_dir, warehouse_home, server_name, password)
-    add_causes_relations(rels_dir, warehouse_home, server_name, password)
+    add_causes_relations(warehouse_home, server_name, password)
 
 
 def add_causation_instances(rels_dir, warehouse_home, server_name,
@@ -799,22 +799,30 @@ def add_causation_instances(rels_dir, warehouse_home, server_name,
     for rel_fname in Path(rels_dir).files('*.json'):
         log.info('adding CausationInst from file ' + rel_fname)
         for rec in json.load(rel_fname.open()):
-            # TODO: multiple pattern names in case of multiple matches
             r = session.run("""
             MATCH
-                (e1:EventInst), (e2:EventInst)
+                (e1:EventInst)
+                <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
+                (e2:EventInst)
             WHERE
                 e1.eventID = {fromNodeId} AND e2.eventID = {toNodeId}
+            WITH e1, e2, s
             MERGE
                 (e1) <-[:HAS_CAUSE]-
-                (:CausationInst {patternName: {patternName}})
+                (c:CausationInst)
                 -[:HAS_EFFECT]-> (e2)
+            ON CREATE SET
+                c.patternName = [{patternName}]
+            ON MATCH SET
+                c.patternName = c.patternName + {patternName}
+            MERGE
+                (s) -[:HAS_EVENT]-> (c)
             """, rec)
 
     session.close()
 
 
-def add_causes_relations(rels_dir, warehouse_home, server_name, password=None):
+def add_causes_relations(warehouse_home, server_name, password=None):
     log.info('adding CAUSES relations')
 
     session = get_session(warehouse_home, server_name, password)
