@@ -177,7 +177,7 @@ def _inject_defaults(functions, config, section, use_namespace):
     inject default values from config into functions,
     as if a @arg(default='value') decorator was applied to each function
     """
-    # TODO: handle *args and **kwargs
+    # TODO 3: handle *args and **kwargs
     for func in functions:
         # log.info(func.__name__)
         # get the argh_args list for this function,
@@ -220,7 +220,7 @@ def _inject_defaults(functions, config, section, use_namespace):
                                                         func_arg, argh_arg)
                 # log.info('  {} = {!r}'.format(config_name, argh_arg['default']))
 
-                # FIXME: optional argument hack
+                # TODO 3: fix optional argument hack
                 # manditory arguments can not have a default,
                 # so we pretend that each argument is an optional argument
                 if not opt_name.startswith('-'):

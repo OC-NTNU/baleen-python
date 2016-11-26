@@ -28,7 +28,7 @@ INITIAL_PASSWORD = 'neo4j'
 DEFAULT_HTTP_ADDRESS = 'localhost:7474'
 DEFAULT_BOLT_ADDRESS = 'localhost:7687'
 
-# TODO: fix server certificate problem:
+# TODO 2: fix server certificate problem:
 # neo4j.v1.exceptions.ProtocolError: Server certificate does not match known
 # certificate for 'localhost'; check details in file
 # '/Users/work/.neo4j/known_hosts'
@@ -88,7 +88,7 @@ def setup_server(warehouse_home, server_name, edition=DEFAULT_EDITION,
     start_server(warehouse_home, server_name)
 
     if password:
-        # TODO: support for changing user name
+        # TODO 3: support for changing user name
         # It seems that currently the neo4j server API does not support the
         # creation of a new user, so the only thing we can/must do is change
         # the password for the default user 'neo4j'.
@@ -216,7 +216,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     -----
     See http://neo4j.com/docs/stable/import-tool-header-format.html
     """
-    # TODO: change article nodes to document
+    # TODO 3: change article nodes to document
     # hold on to open files
     open_files = []
 
@@ -346,7 +346,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                                         'VariableType'))
                 variable_types.add(var_type)
 
-            # FIXME weak method of detecting preprocessing
+            # TODO 2: weak method of detecting preprocessing
             if ('transformName' in rec and
                     not rec['transformName'].startswith('PreProc')):
                 # variable is transformed, but not by preprocessing,
@@ -489,7 +489,7 @@ def postproc_graph(warehouse_home, server_name, password=None):
 
     events = ('Change', 'Increase', 'Decrease')
 
-    # TODO: merge these loops?
+    # TODO 2: merge these loops?
 
     # For each changing/increasing/decreasing VariableType,
     # create a ChangeType/IncreaseType/DecreaseType node and

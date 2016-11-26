@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 log.setLevel('DEBUG')
 
 
-# TODO: doc strings
+# TODO 3: doc strings
 
 
 def tag_var_nodes(vars_dir, trees_dir, tagged_dir):

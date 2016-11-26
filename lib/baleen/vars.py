@@ -45,7 +45,7 @@ def preproc_vars(trans_exec, trans_fname, in_vars_dir, out_vars_dir,
     Deletes determiners (DT), personal/possessive pronouns (PRP or PRP$) and
     list item markers (LS or LST).
     """
-    # TODO: resume only works if tmp_dir is given
+    # TODO 3: resume only works if tmp_dir is given
     if not tmp_dir:
         tmp = TemporaryDirectory()
         tmp_dir = tmp.name

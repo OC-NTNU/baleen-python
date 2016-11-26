@@ -120,7 +120,7 @@ def get_citation(doi, cache,
     citation = response.content.decode('utf-8')
 
     if strip_doi:
-        # TODO: won't work for other styles
+        # TODO 3: won't work for other styles
         citation = citation.split(' doi:')[0]
 
     cache[doi] = citation

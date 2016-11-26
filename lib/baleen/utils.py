@@ -93,7 +93,7 @@ def copy_doc(from_func, to_func, first_line_only=True):
 
 
 
-# TODO: possible bug is that second part of DOI is regarded as tag; use is_doi flag?
+# TODO 3: possible bug is that second part of DOI is regarded as tag; use is_doi flag?
 def derive_path(path, new_dir=None, new_corename=None, new_ext=None,
                 remove_tags=[], append_tags=[]):
     """

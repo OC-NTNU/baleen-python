@@ -6,7 +6,7 @@ from baleen import scnlp, vars, n4j, cite, rels
 from baleen.utils import remove_any
 
 
-# TODO: consider defining __all__
+# TODO 3: consider defining __all__
 
 
 # not using *args and **kwargs below,

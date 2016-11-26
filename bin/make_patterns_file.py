@@ -5,7 +5,7 @@ generate patterns by instantiating patterns with verbs/nouns
 saving to a file with Tsurgeon transformations
 """
 
-# TODO: needs to be intergrated in a better way, e.g. with CL interface
+# TODO 2: needs to be integrated in a better way, e.g. with CL interface
 
 
 transform_template = """
@@ -165,7 +165,7 @@ increase_verbs = (
 # * swell
 # * widen
 
-# TODO:
+
 # * build up
 
 
@@ -186,8 +186,7 @@ increase_nouns = (
     ("rise", "in|of")
 )
 
-# TODO:
-# other increase nouns?
+# TODO 3: other increase nouns?
 
 
 increase_patterns = generate_patterns(increase_verbs, verb_patterns,
@@ -244,7 +243,7 @@ decrease_patterns = generate_patterns(decrease_verbs, verb_patterns,
 write_patterns_file("decrease.tfm", decrease_patterns)
     
     
-# TODO: comparative adjectives/adverbs
+# TODO 3: comparative adjectives/adverbs
 # more - less/fewer
 # greater/larger/bigger/wider/broader/taller/wider - smaller/narrower/shorter
 # longer - shorter/briefer
