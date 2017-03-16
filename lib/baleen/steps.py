@@ -138,10 +138,16 @@ def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir,
 
 @arg('--max-n-vars', type=int)
 @docstring(n4j.vars_to_csv)
-def tocsv(vars_dir, scnlp_dir, text_dir, nodes_dir, relations_dir,
-          max_n_vars=None):
+def vars2csv(vars_dir, scnlp_dir, text_dir, nodes_dir, relations_dir,
+             max_n_vars=None):
     n4j.vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_dir,
                     relations_dir, max_n_vars)
+
+
+@arg('--max-n-vars', type=int)
+@docstring(n4j.rels_to_csv)
+def rels2csv(rels_dir, nodes_dir, relations_dir, max_n_vars=None):
+    n4j.rels_to_csv(rels_dir, nodes_dir, relations_dir, max_n_vars)
 
 
 @docstring(n4j.neo4j_import)
@@ -204,6 +210,3 @@ def tag_trees(vars_dir, trees_dir, tagged_dir):
 def ext_rels(class_path, tagged_dir, pattern_path, rels_dir):
     rels.extract_relations(class_path, tagged_dir, pattern_path, rels_dir)
 
-@docstring(n4j.add_causation_instances)
-def add_rels(rels_dir, warehouse_home, server_name, password=None):
-    n4j.add_causation_instances(rels_dir, warehouse_home, server_name, password)

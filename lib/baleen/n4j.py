@@ -220,28 +220,20 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     # hold on to open files
     open_files = []
 
-    def create_csv_file(dir, csv_fname,
-                        header=(':START_ID', ':END_ID', ':TYPE')):
-        csv_fname = Path(dir) / csv_fname
-        log.info('creating ' + csv_fname)
-        f = open(csv_fname, 'w', newline='')
-        open_files.append(f)
-        csv_file = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
-        csv_file.writerow(header)
-        return csv_file
-
     Path(nodes_csv_dir).makedirs_p()
     Path(relation_csv_dir).makedirs_p()
 
     # create csv files for nodes
     articles_csv = create_csv_file(nodes_csv_dir,
                                    'articles.csv',
+                                   open_files,
                                    ('doi:ID',
                                     'filename',
                                     ':LABEL'))
 
     sentences_csv = create_csv_file(nodes_csv_dir,
                                     'sentences.csv',
+                                    open_files,
                                     ('sentID:ID',
                                      'treeNumber:int',
                                      'charOffsetBegin:int',
@@ -251,11 +243,13 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
 
     variables_csv = create_csv_file(nodes_csv_dir,
                                     'variables.csv',
+                                    open_files,
                                     ('subStr:ID',
                                      ':LABEL'))
 
     events_csv = create_csv_file(nodes_csv_dir,
                                  'events.csv',
+                                 open_files,
                                  ('eventID:ID',
                                   'filename',
                                   'nodeNumber:int',
@@ -267,13 +261,17 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
 
     # create csv files for relations
     has_sent_csv = create_csv_file(relation_csv_dir,
-                                   'has_sent.csv')
+                                   'has_sent.csv',
+                                   open_files)
     has_var_csv = create_csv_file(relation_csv_dir,
-                                  'has_var.csv')
+                                  'has_var.csv',
+                                  open_files)
     has_event_csv = create_csv_file(relation_csv_dir,
-                                    'has_event.csv')
+                                    'has_event.csv',
+                                    open_files)
     tentails_var_csv = create_csv_file(relation_csv_dir,
                                        'tentails_var.csv',
+                                       open_files,
                                        (':START_ID',
                                         ':END_ID',
                                         'transformName',
@@ -376,6 +374,57 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                 has_var_csv.writerow((event_id,
                                       var_type,
                                       'HAS_VAR'))
+
+    # release opened files
+    for f in open_files:
+        f.close()
+
+
+def create_csv_file(csv_dir, csv_fname, open_files,
+                    header=(':START_ID', ':END_ID', ':TYPE')):
+    csv_fname = Path(csv_dir) / csv_fname
+    log.info('creating ' + csv_fname)
+    outf = open(csv_fname, 'w', newline='')
+    csv_file = csv.writer(outf, quoting=csv.QUOTE_MINIMAL)
+    csv_file.writerow(header)
+    open_files.append(outf)
+    return csv_file
+
+
+def rels_to_csv(rels_dir, nodes_csv_dir, relation_csv_dir, max_n=None):
+    # hold on to open files
+    open_files = []
+
+    # create csv files for nodes
+    causation_csv = create_csv_file(nodes_csv_dir,
+                                    'causations.csv',
+                                    open_files,
+                                    (':ID',
+                                     'patternName',
+                                     ':LABEL'))
+
+    # create csv files for relations
+    has_cause_csv = create_csv_file(relation_csv_dir,
+                                    'has_cause.csv',
+                                    open_files,)
+    has_effect_csv = create_csv_file(relation_csv_dir,
+                                     'has_effect.csv',
+                                     open_files)
+    has_event_csv = create_csv_file(relation_csv_dir,
+                                    'has_event2.csv',
+                                    open_files)
+
+    causation_n = 0
+
+    for rel_fname in Path(rels_dir).files('*.json')[:max_n]:
+        log.info('adding CausationInst from file ' + rel_fname)
+        for rec in json.load(rel_fname.open()):
+            causation_id = 'CausationInst{}'.format(causation_n)
+            causation_csv.writerow((causation_id, rec['patternName'], 'CausationInst'))
+            has_cause_csv.writerow((causation_id, rec['fromNodeId'], 'HAS_CAUSE'))
+            has_effect_csv.writerow((causation_id, rec['toNodeId'], 'HAS_EFFECT'))
+            has_event_csv.writerow((rec['sentenceId'], causation_id, 'HAS_EVENT'))
+            causation_n += 1
 
     # release opened files
     for f in open_files:
@@ -833,5 +882,3 @@ def add_causation_instances(rels_dir, warehouse_home, server_name, password=None
             """, rec)
 
     session.close()
-
-
