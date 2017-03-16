@@ -549,6 +549,25 @@ def postproc_graph(warehouse_home, server_name, password=None):
         (et1) -[:COOCCURS {n: n}]-> (et2)
         """)
 
+    # --------------------------------------------------------------------------
+    # Create CAUSES relations
+    # --------------------------------------------------------------------------
+    log.info('adding CAUSES relations')
+
+    session.run("""
+         MATCH
+             (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
+             <-[:HAS_CAUSE]- (:CausationInst) -[:HAS_EFFECT]->
+             (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
+         WHERE
+             et1.direction = ei1.direction AND
+             et2.direction = ei2.direction
+         WITH
+             et1, et2, count(*) AS n
+         MERGE
+             (et1) -[:CAUSES {n: n}]-> (et2)
+     """)
+
     session.close()
 
 
@@ -784,16 +803,10 @@ def print_section(title):
     print(80 * '=' + '\n')
 
 
-def add_relations(rels_dir, warehouse_home, server_name, password=None):
+def add_causation_instances(rels_dir, warehouse_home, server_name, password=None):
     """
     Add extracted causal relations to graph
     """
-    add_causation_instances(rels_dir, warehouse_home, server_name, password)
-    add_causes_relations(warehouse_home, server_name, password)
-
-
-def add_causation_instances(rels_dir, warehouse_home, server_name,
-                            password=None):
     session = get_session(warehouse_home, server_name, password)
 
     for rel_fname in Path(rels_dir).files('*.json'):
@@ -822,22 +835,3 @@ def add_causation_instances(rels_dir, warehouse_home, server_name,
     session.close()
 
 
-def add_causes_relations(warehouse_home, server_name, password=None):
-    log.info('adding CAUSES relations')
-
-    session = get_session(warehouse_home, server_name, password)
-    session.run("""
-        MATCH
-            (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
-            <-[:HAS_CAUSE]- (:CausationInst) -[:HAS_EFFECT]->
-            (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
-        WHERE
-            et1.direction = ei1.direction AND
-            et2.direction = ei2.direction
-        WITH
-            et1, et2, count(*) AS n
-        MERGE
-            (et1) -[:CAUSES {n: n}]-> (et2)
-    """)
-
-    session.close()

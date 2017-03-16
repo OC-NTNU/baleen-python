@@ -204,6 +204,6 @@ def tag_trees(vars_dir, trees_dir, tagged_dir):
 def ext_rels(class_path, tagged_dir, pattern_path, rels_dir):
     rels.extract_relations(class_path, tagged_dir, pattern_path, rels_dir)
 
-@docstring(n4j.add_relations)
+@docstring(n4j.add_causation_instances)
 def add_rels(rels_dir, warehouse_home, server_name, password=None):
-    n4j.add_relations(rels_dir, warehouse_home, server_name, password)
+    n4j.add_causation_instances(rels_dir, warehouse_home, server_name, password)
