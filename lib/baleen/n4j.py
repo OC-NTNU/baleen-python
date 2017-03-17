@@ -8,6 +8,9 @@ import csv
 import json
 import time
 from path import Path
+from collections import defaultdict
+from glob import glob
+from os.path import basename, join, abspath
 
 from lxml import etree
 
@@ -191,6 +194,105 @@ def neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
     return completed_proc
 
 
+def create_unique_csv_nodes(file_pats, out_dir):
+    """
+    Create CSV files with unique nodes
+    """
+    Path(out_dir).makedirs_p()
+    dd = defaultdict(list)
+
+    # create mapping from file basenames to corresponding file paths
+    for path in _expand_file_pats(file_pats):
+        log.info('reading non-unique csv nodes from ' + path)
+        dd[basename(path)].append(path)
+
+    for fname, paths in dd.items():
+        uniq_lines = set()
+        prev_header = None
+
+        for path in paths:
+            with open(path) as inf:
+                header = inf.readline()
+                if prev_header:
+                    assert header == prev_header
+                prev_header = header
+                for line in inf:
+                    uniq_lines.add(line)
+
+        out_fname = join(out_dir, fname)
+        log.info('writing unique csv nodes to ' + out_fname)
+
+        with open(out_fname, 'w') as outf:
+            outf.write(header)
+            outf.writelines(uniq_lines)
+
+
+def neo4j_import_multi(warehouse_home, server_name, node_file_pats, rel_file_pats, exclude_file_pats,
+                       options=None):
+    """
+    Create a new Neo4j database from multiple data sources in CSV format
+
+    Parameters
+    ----------
+    warehouse_home : str
+        directory of neokit warehouse containing all neokit server instances
+    server_name : str
+        name of neokit server instance
+    node_file_pats : list of str
+        glob patterns for files with node in CSV format
+    rel_file_pats : list of str
+        glob patterns for files with relations in CSV format
+    exclude_file_pats: list of str
+        glob patterns for node/relation files to exclude
+    options : str
+        additional options for neo4j-import
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        info on completed process
+
+    Notes
+    -------
+    This will overwrite the existing database of the graph server!
+
+    See http://neo4j.com/docs/stable/import-tool-usage.html
+    """
+    warehouse = neokit.Warehouse(warehouse_home)
+    server = warehouse.get(server_name)
+    server.stop()
+
+    log.info('deleting database directory ' + server.store_path)
+    server.delete_store()
+
+    executable = Path(server.home) / 'bin' / 'neo4j-import'
+    args = [executable, '--into', server.store_path]
+
+    excluded_files = set(_expand_file_pats(exclude_file_pats))
+
+    for fname in _expand_file_pats(node_file_pats):
+        if fname not in excluded_files:
+            args.append('--nodes')
+            args.append(abspath(fname))
+
+    for fname in _expand_file_pats(rel_file_pats):
+        if fname not in excluded_files:
+            args.append('--relationships')
+            args.append(abspath(fname))
+
+    if options:
+        args += options.split()
+
+    log.info('running subprocess: ' + ' '.join(args))
+
+    completed_proc = subprocess.run(args)
+
+    # restart server after import
+    server.start()
+
+    return completed_proc
+
+
 def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv_dir,
                     max_n=None, online=True):
     """
@@ -256,8 +358,6 @@ def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv
     # release opened files
     for f in open_files:
         f.close()
-
-
 
 
 def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
@@ -469,7 +569,7 @@ def rels_to_csv(rels_dir, nodes_csv_dir, relation_csv_dir, max_n=None):
     # create csv files for relations
     has_cause_csv = create_csv_file(relation_csv_dir,
                                     'has_cause.csv',
-                                    open_files,)
+                                    open_files, )
     has_effect_csv = create_csv_file(relation_csv_dir,
                                      'has_effect.csv',
                                      open_files)
@@ -733,6 +833,10 @@ def _doi2txt_fname(text_dir):
     return doi2txt
 
 
+def _expand_file_pats(patterns):
+    return (path for pat in patterns for path in glob(pat))
+
+
 def graph_report(warehouse_home, server_name, password, top_n=50):
     """
     Report on graph database
@@ -926,8 +1030,6 @@ def print_section(title):
     print(80 * '=')
     print(title)
     print(80 * '=' + '\n')
-
-
 
 
 # Old code for adding metadata and citation directly to Article nodes in a graph.

@@ -135,10 +135,12 @@ def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir,
     vars.prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir, resume,
                     options=options)
 
+
 @arg('--max-n-vars', type=int)
 @docstring(n4j.articles_to_csv)
 def arts2csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_dir, max_n_vars=None, online=True):
     n4j.articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_dir, max_n_vars, online)
+
 
 @arg('--max-n-vars', type=int)
 @docstring(n4j.vars_to_csv)
@@ -158,6 +160,21 @@ def rels2csv(rels_dir, nodes_dir, relations_dir, max_n_vars=None):
 def toneo(warehouse_home, server_name, nodes_dir, relations_dir, options=None):
     n4j.neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
                      options=options)
+
+
+@docstring(n4j.neo4j_import_multi)
+def multi_toneo(warehouse_home, server_name, node_file_pats, rel_file_pats, exclude_file_pats,
+                options=None):
+    n4j.neo4j_import_multi(warehouse_home, server_name,
+                           node_file_pats.split(':'),
+                           rel_file_pats.split(':'),
+                           exclude_file_pats.split(':'),
+                           options=options)
+
+
+@docstring(n4j.create_unique_csv_nodes)
+def uniq(file_pats, out_dir):
+    n4j.create_unique_csv_nodes(file_pats=file_pats.split(':'), out_dir=out_dir)
 
 
 @docstring(n4j.postproc_graph)
@@ -189,7 +206,7 @@ stop_server = n4j.stop_server
 def add_cit(warehouse_home, server_name, cache_dir, resume=False,
             password=None, online=True):
     n4j.add_citations(warehouse_home, server_name, cache_dir, resume=resume,
-                             password=password, online=online)
+                      password=password, online=online)
 
 
 @arg('-r', '--resume', help='toggle default for resuming process')
@@ -198,7 +215,7 @@ def add_cit(warehouse_home, server_name, cache_dir, resume=False,
 def add_meta(warehouse_home, server_name, cache_dir, resume=False,
              password=None, online=True):
     n4j.add_metadata(warehouse_home, server_name, cache_dir, resume=resume,
-                            password=password, online=online)
+                     password=password, online=online)
 
 
 @docstring(cite.clean_metadata_cache)
@@ -210,7 +227,7 @@ def clean_cache(cache_dir):
 def tag_trees(vars_dir, trees_dir, tagged_dir):
     rels.tag_var_nodes(vars_dir, trees_dir, tagged_dir)
 
+
 @docstring(rels.extract_relations)
 def ext_rels(class_path, tagged_dir, pattern_path, rels_dir):
     rels.extract_relations(class_path, tagged_dir, pattern_path, rels_dir)
-
