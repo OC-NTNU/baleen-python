@@ -11,11 +11,12 @@ from path import Path
 
 from lxml import etree
 
-from neo4j.v1 import GraphDatabase, basic_auth
+from neo4j.v1 import GraphDatabase, basic_auth, ResultError
 import neokit
 
 from tabulate import tabulate
 
+from baleen.cite import get_all_metadata, get_citation, get_cache, log
 from baleen.utils import derive_path, get_doi
 
 log = logging.getLogger(__name__)
@@ -190,6 +191,58 @@ def neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
     return completed_proc
 
 
+def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv_dir,
+                    max_n=None, online=True):
+    Path(nodes_csv_dir).makedirs_p()
+    # hold on to open files
+    open_files = []
+
+    articles_csv = create_csv_file(nodes_csv_dir,
+                                   'articles.csv',
+                                   open_files,
+                                   ('doi:ID',
+                                    'filename',
+                                    'title',
+                                    'journal',
+                                    'year',
+                                    'month',
+                                    'day',
+                                    'ISSN',
+                                    'publisher',
+                                    'citation',
+                                    ':LABEL'))
+
+    # mapping from DOI to text files
+    doi2txt = _doi2txt_fname(text_dir)
+
+    meta_cache = get_cache(meta_cache_dir)
+    cit_cache = get_cache(cit_cache_dir)
+
+    for json_fname in Path(vars_dir).files('*.json')[:max_n]:
+        doi = get_doi(json_fname)
+
+        try:
+            text_fname = doi2txt[doi]
+        except KeyError:
+            log.error('no matching text file for DOI ' + doi)
+            continue
+
+        metadata = get_all_metadata(doi, meta_cache, online=online)
+        citation = get_citation(doi, cit_cache, online=online)
+
+        # create article node
+        articles_csv.writerow((doi, text_fname, metadata['title'], metadata['journal'], metadata['year'],
+                               metadata['month'], metadata['day'], metadata['ISSN'], metadata['publisher'],
+                               citation, 'Article'))
+        # TODO: post-process to remove Articles nodes without Sentence node
+
+    # release opened files
+    for f in open_files:
+        f.close()
+
+
+
+
 def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                 relation_csv_dir, max_n=None):
     """
@@ -224,13 +277,6 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     Path(relation_csv_dir).makedirs_p()
 
     # create csv files for nodes
-    articles_csv = create_csv_file(nodes_csv_dir,
-                                   'articles.csv',
-                                   open_files,
-                                   ('doi:ID',
-                                    'filename',
-                                    ':LABEL'))
-
     sentences_csv = create_csv_file(nodes_csv_dir,
                                     'sentences.csv',
                                     open_files,
@@ -308,9 +354,6 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
         xml_tree = etree.parse(scnlp_fname)
         sentences_elem = xml_tree.getroot()[0][0]
 
-        # create article node
-        articles_csv.writerow((doi, text_fname, 'Article'))
-
         tree_number = None
 
         # mapping of record's "key" to "subStr" attribute,
@@ -380,17 +423,6 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
         f.close()
 
 
-def create_csv_file(csv_dir, csv_fname, open_files,
-                    header=(':START_ID', ':END_ID', ':TYPE')):
-    csv_fname = Path(csv_dir) / csv_fname
-    log.info('creating ' + csv_fname)
-    outf = open(csv_fname, 'w', newline='')
-    csv_file = csv.writer(outf, quoting=csv.QUOTE_MINIMAL)
-    csv_file.writerow(header)
-    open_files.append(outf)
-    return csv_file
-
-
 def rels_to_csv(rels_dir, nodes_csv_dir, relation_csv_dir, max_n=None):
     # hold on to open files
     open_files = []
@@ -429,6 +461,17 @@ def rels_to_csv(rels_dir, nodes_csv_dir, relation_csv_dir, max_n=None):
     # release opened files
     for f in open_files:
         f.close()
+
+
+def create_csv_file(csv_dir, csv_fname, open_files,
+                    header=(':START_ID', ':END_ID', ':TYPE')):
+    csv_fname = Path(csv_dir) / csv_fname
+    log.info('creating ' + csv_fname)
+    outf = open(csv_fname, 'w', newline='')
+    csv_file = csv.writer(outf, quoting=csv.QUOTE_MINIMAL)
+    csv_file.writerow(header)
+    open_files.append(outf)
+    return csv_file
 
 
 def postproc_graph(warehouse_home, server_name, password=None):
@@ -852,33 +895,121 @@ def print_section(title):
     print(80 * '=' + '\n')
 
 
-def add_causation_instances(rels_dir, warehouse_home, server_name, password=None):
-    """
-    Add extracted causal relations to graph
-    """
-    session = get_session(warehouse_home, server_name, password)
 
-    for rel_fname in Path(rels_dir).files('*.json'):
-        log.info('adding CausationInst from file ' + rel_fname)
-        for rec in json.load(rel_fname.open()):
-            r = session.run("""
-            MATCH
-                (e1:EventInst)
-                <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
-                (e2:EventInst)
-            WHERE
-                e1.eventID = {fromNodeId} AND e2.eventID = {toNodeId}
-            WITH e1, e2, s
-            MERGE
-                (e1) <-[:HAS_CAUSE]-
-                (c:CausationInst)
-                -[:HAS_EFFECT]-> (e2)
-            ON CREATE SET
-                c.patternName = [{patternName}]
-            ON MATCH SET
-                c.patternName = c.patternName + {patternName}
-            MERGE
-                (s) -[:HAS_EVENT]-> (c)
-            """, rec)
 
-    session.close()
+# Old code for adding metadata and citation directly to Article nodes in a graph.
+# Superseded by csv import.
+
+
+def add_citations(warehouse_home, server_name, cache_dir,
+                  resume=False, password=None, online=True):
+    """
+    Add citation string to Article nodes
+
+    Parameters
+    ----------
+    warehouse_home
+    server_name
+    cache_dir
+    resume
+    password
+
+    Returns
+    -------
+
+    """
+    session = get_session(warehouse_home, server_name, password=password)
+
+    if resume:
+        query = """
+            MATCH (a:Article)
+            WHERE a.citation is NULL
+            RETURN a.doi as doi"""
+    else:
+        query = """
+            MATCH (a:Article)
+            RETURN a.doi as doi"""
+
+    records = session.run(query)
+
+    try:
+        records.peek()
+    except ResultError:
+        log.info('no Article nodes without citation property')
+        return
+
+    cache = get_cache(cache_dir)
+
+    for rec in records:
+        doi = rec['doi']
+        citation = get_citation(doi, cache, online=online)
+
+        if citation:
+            session.run("""
+            MATCH (a:Article)
+            WHERE a.doi = {doi}
+            SET a.citation = {citation}
+            """, {'doi': doi, 'citation': citation})
+            log.info('added citation for DOI ' + doi)
+
+
+def add_metadata(warehouse_home, server_name, cache_dir,
+                 resume=False, password=None, online=True):
+    """
+    Add article metadata to Article nodes
+
+    Parameters
+    ----------
+    warehouse_home
+    server_name
+    cache_dir
+    resume
+    password
+
+    Returns
+    -------
+
+    """
+    session = get_session(warehouse_home, server_name, password=password)
+
+    if resume:
+        query = """
+            MATCH (a:Article)
+            WHERE ( a.title is NULL OR
+                    a.journal is NULL OR
+                    a.publisher is NULL OR
+                    a.year is NULL OR
+                    a.ISSN is NULL )
+            RETURN a.doi as doi"""
+    else:
+        query = """
+            MATCH (a:Article)
+            RETURN a.doi as doi"""
+
+    records = session.run(query)
+
+    try:
+        records.peek()
+    except ResultError:
+        log.info('no Article nodes without title property')
+        return
+
+    cache = get_cache(cache_dir)
+
+    for rec in records:
+        doi = rec['doi']
+        metadata = get_all_metadata(doi, cache, online)
+
+        session.run("""
+                MATCH (a:Article)
+                WHERE a.doi = {doi}
+                SET a.title = {title},
+                    a.journal = {journal},
+                    a.year = {year},
+                    a.month = {month},
+                    a.day = {day},
+                    a.ISSN = {ISSN},
+                    a.publisher = {publisher}
+                """, metadata)
+
+        log.info('added metadata for DOI ' + doi)

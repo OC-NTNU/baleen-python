@@ -135,6 +135,10 @@ def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir,
     vars.prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir, resume,
                     options=options)
 
+@arg('--max-n-vars', type=int)
+@docstring(n4j.articles_to_csv)
+def arts2csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_dir, max_n_vars=None, online=True):
+    n4j.articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_dir, max_n_vars, online)
 
 @arg('--max-n-vars', type=int)
 @docstring(n4j.vars_to_csv)
@@ -181,20 +185,20 @@ stop_server = n4j.stop_server
 
 @arg('-r', '--resume', help='toggle default for resuming process')
 @arg('-o', '--online', help='toggle default for using online lookup')
-@docstring(cite.add_citations)
+@docstring(n4j.add_citations)
 def add_cit(warehouse_home, server_name, cache_dir, resume=False,
             password=None, online=True):
-    cite.add_citations(warehouse_home, server_name, cache_dir, resume=resume,
-                       password=password, online=online)
+    n4j.add_citations(warehouse_home, server_name, cache_dir, resume=resume,
+                             password=password, online=online)
 
 
 @arg('-r', '--resume', help='toggle default for resuming process')
 @arg('-o', '--online', help='toggle default for using online lookup')
-@docstring(cite.add_metadata)
+@docstring(n4j.add_metadata)
 def add_meta(warehouse_home, server_name, cache_dir, resume=False,
              password=None, online=True):
-    cite.add_metadata(warehouse_home, server_name, cache_dir, resume=resume,
-                      password=password, online=online)
+    n4j.add_metadata(warehouse_home, server_name, cache_dir, resume=resume,
+                            password=password, online=online)
 
 
 @docstring(cite.clean_metadata_cache)

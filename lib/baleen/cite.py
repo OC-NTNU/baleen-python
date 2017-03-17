@@ -3,13 +3,10 @@ citations
 """
 
 import logging
+
 import pickleshare
-from path import Path
-
 import requests
-
-from baleen.n4j import get_session
-from neo4j.v1 import ResultError
+from path import Path
 
 log = logging.getLogger(__name__)
 
@@ -18,62 +15,15 @@ logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(
     logging.WARNING)
 
 
-def add_citations(warehouse_home, server_name, cache_dir,
-                  resume=False, password=None, online=True):
-    """
-    Add citation string to Article nodes
-
-    Parameters
-    ----------
-    warehouse_home
-    server_name
-    cache_dir
-    resume
-    password
-
-    Returns
-    -------
-
-    """
-    session = get_session(warehouse_home, server_name, password=password)
-
-    if resume:
-        query = """
-            MATCH (a:Article)
-            WHERE a.citation is NULL
-            RETURN a.doi as doi"""
-    else:
-        query = """
-            MATCH (a:Article)
-            RETURN a.doi as doi"""
-
-    records = session.run(query)
-
-    try:
-        records.peek()
-    except ResultError:
-        log.info('no Article nodes without citation property')
-        return
-
+def get_cache(cache_dir):
     # The reason to use pickleshare is that it uses a separate pickle file
     # for each key (i.e. doi), so if the process crashes, at least most of the
     # looked up citations/metadata is saved to file
     cache_path = Path(cache_dir)
     cache_path.dirname().makedirs_p()
-    log.info('reading cached citations from ' + cache_path)
+    log.info('reading cached data from ' + cache_path)
     cache = pickleshare.PickleShareDB(cache_dir)
-
-    for rec in records:
-        doi = rec['doi']
-        citation = get_citation(doi, cache, online=online)
-
-        if citation:
-            session.run("""
-            MATCH (a:Article)
-            WHERE a.doi = {doi}
-            SET a.citation = {citation}
-            """, {'doi': doi, 'citation': citation})
-            log.info('added citation for DOI ' + doi)
+    return cache
 
 
 def get_citation(doi, cache,
@@ -125,71 +75,6 @@ def get_citation(doi, cache,
 
     cache[doi] = citation
     return citation
-
-
-def add_metadata(warehouse_home, server_name, cache_dir,
-                 resume=False, password=None, online=True):
-    """
-    Add article metadata to Article nodes
-
-    Parameters
-    ----------
-    warehouse_home
-    server_name
-    cache_dir
-    resume
-    password
-
-    Returns
-    -------
-
-    """
-    session = get_session(warehouse_home, server_name, password=password)
-
-    if resume:
-        query = """
-            MATCH (a:Article)
-            WHERE ( a.title is NULL OR
-                    a.journal is NULL OR
-                    a.publisher is NULL OR
-                    a.year is NULL OR
-                    a.ISSN is NULL )
-            RETURN a.doi as doi"""
-    else:
-        query = """
-            MATCH (a:Article)
-            RETURN a.doi as doi"""
-
-    records = session.run(query)
-
-    try:
-        records.peek()
-    except ResultError:
-        log.info('no Article nodes without title property')
-        return
-
-    cache_path = Path(cache_dir)
-    cache_path.dirname().makedirs_p()
-    log.info('reading cached metadata from ' + cache_path)
-    cache = pickleshare.PickleShareDB(cache_dir)
-
-    for rec in records:
-        doi = rec['doi']
-        metadata = get_all_metadata(doi, cache, online)
-
-        session.run("""
-                MATCH (a:Article)
-                WHERE a.doi = {doi}
-                SET a.title = {title},
-                    a.journal = {journal},
-                    a.year = {year},
-                    a.month = {month},
-                    a.day = {day},
-                    a.ISSN = {ISSN},
-                    a.publisher = {publisher}
-                """, metadata)
-
-        log.info('added metadata for DOI ' + doi)
 
 
 def get_all_metadata(doi, cache, online=True):
