@@ -450,8 +450,10 @@ def rels_to_csv(rels_dir, nodes_csv_dir, relation_csv_dir, max_n=None):
 
     for rel_fname in Path(rels_dir).files('*.json')[:max_n]:
         log.info('adding CausationInst from file ' + rel_fname)
+        doi = get_doi(rel_fname)
+
         for rec in json.load(rel_fname.open()):
-            causation_id = 'CausationInst{}'.format(causation_n)
+            causation_id = '{}/CausationInst/{}'.format(doi, causation_n)
             causation_csv.writerow((causation_id, rec['patternName'], 'CausationInst'))
             has_cause_csv.writerow((causation_id, rec['fromNodeId'], 'HAS_CAUSE'))
             has_effect_csv.writerow((causation_id, rec['toNodeId'], 'HAS_EFFECT'))
