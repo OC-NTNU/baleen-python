@@ -193,6 +193,23 @@ def neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
 
 def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv_dir,
                     max_n=None, online=True):
+    """
+    Transform articles to csv tables that can be imported by neo4j
+
+    Parameters
+    ----------
+    vars_dir
+    text_dir
+    meta_cache_dir
+    cit_cache_dir
+    nodes_csv_dir
+    max_n
+    online
+
+    Returns
+    -------
+
+    """
     Path(nodes_csv_dir).makedirs_p()
     # hold on to open files
     open_files = []
@@ -424,6 +441,20 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
 
 
 def rels_to_csv(rels_dir, nodes_csv_dir, relation_csv_dir, max_n=None):
+    """
+    Transform extracted relations to csv tables that can be imported by neo4j
+
+    Parameters
+    ----------
+    rels_dir
+    nodes_csv_dir
+    relation_csv_dir
+    max_n
+
+    Returns
+    -------
+
+    """
     # hold on to open files
     open_files = []
 
