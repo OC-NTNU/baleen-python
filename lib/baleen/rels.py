@@ -39,11 +39,17 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
     tagged_dir.makedirs_p()
 
     for vars_fname in Path(vars_dir).glob('*.json'):
-        d = defaultdict(list)
+        records = json.load(vars_fname.open())
+
+        if not len(records) > 1:
+            # must contain at least two variables
+            continue
 
         # create a dict mapping each tree number to a list of
         # (nodeNumber, extractName) tuples for its variables
-        for record in json.load(vars_fname.open()):
+        d = defaultdict(list)
+
+        for record in records:
             pair = record['nodeNumber'], record['key']
             d[record['treeNumber']].append(pair)
 
