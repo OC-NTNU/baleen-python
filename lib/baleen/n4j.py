@@ -8,14 +8,18 @@ import csv
 import json
 import time
 from path import Path
+from collections import defaultdict
+from glob import glob
+from os.path import basename, join, abspath
 
 from lxml import etree
 
-from neo4j.v1 import GraphDatabase, basic_auth
+from neo4j.v1 import GraphDatabase, basic_auth, ResultError
 import neokit
 
 from tabulate import tabulate
 
+from baleen.cite import get_all_metadata, get_citation, get_cache, log
 from baleen.utils import derive_path, get_doi
 
 log = logging.getLogger(__name__)
@@ -190,6 +194,172 @@ def neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
     return completed_proc
 
 
+def create_unique_csv_nodes(file_pats, out_dir):
+    """
+    Create CSV files with unique nodes
+    """
+    Path(out_dir).makedirs_p()
+    dd = defaultdict(list)
+
+    # create mapping from file basenames to corresponding file paths
+    for path in _expand_file_pats(file_pats):
+        log.info('reading non-unique csv nodes from ' + path)
+        dd[basename(path)].append(path)
+
+    for fname, paths in dd.items():
+        uniq_lines = set()
+        prev_header = None
+
+        for path in paths:
+            with open(path) as inf:
+                header = inf.readline()
+                if prev_header:
+                    assert header == prev_header
+                prev_header = header
+                for line in inf:
+                    uniq_lines.add(line)
+
+        out_fname = join(out_dir, fname)
+        log.info('writing unique csv nodes to ' + out_fname)
+
+        with open(out_fname, 'w') as outf:
+            outf.write(header)
+            outf.writelines(uniq_lines)
+
+
+def neo4j_import_multi(warehouse_home, server_name, node_file_pats, rel_file_pats, exclude_file_pats,
+                       options=None):
+    """
+    Create a new Neo4j database from multiple data sources in CSV format
+
+    Parameters
+    ----------
+    warehouse_home : str
+        directory of neokit warehouse containing all neokit server instances
+    server_name : str
+        name of neokit server instance
+    node_file_pats : list of str
+        glob patterns for files with node in CSV format
+    rel_file_pats : list of str
+        glob patterns for files with relations in CSV format
+    exclude_file_pats: list of str
+        glob patterns for node/relation files to exclude
+    options : str
+        additional options for neo4j-import
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        info on completed process
+
+    Notes
+    -------
+    This will overwrite the existing database of the graph server!
+
+    See http://neo4j.com/docs/stable/import-tool-usage.html
+    """
+    warehouse = neokit.Warehouse(warehouse_home)
+    server = warehouse.get(server_name)
+    server.stop()
+
+    log.info('deleting database directory ' + server.store_path)
+    server.delete_store()
+
+    executable = Path(server.home) / 'bin' / 'neo4j-import'
+    args = [executable, '--into', server.store_path]
+
+    excluded_files = set(_expand_file_pats(exclude_file_pats))
+
+    for fname in _expand_file_pats(node_file_pats):
+        if fname not in excluded_files:
+            args.append('--nodes')
+            args.append(abspath(fname))
+
+    for fname in _expand_file_pats(rel_file_pats):
+        if fname not in excluded_files:
+            args.append('--relationships')
+            args.append(abspath(fname))
+
+    if options:
+        args += options.split()
+
+    log.info('running subprocess: ' + ' '.join(args))
+
+    completed_proc = subprocess.run(args)
+
+    # restart server after import
+    server.start()
+
+    return completed_proc
+
+
+def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv_dir,
+                    max_n=None, online=True):
+    """
+    Transform articles to csv tables that can be imported by neo4j
+
+    Parameters
+    ----------
+    vars_dir
+    text_dir
+    meta_cache_dir
+    cit_cache_dir
+    nodes_csv_dir
+    max_n
+    online
+
+    Returns
+    -------
+
+    """
+    Path(nodes_csv_dir).makedirs_p()
+    # hold on to open files
+    open_files = []
+
+    articles_csv = create_csv_file(nodes_csv_dir,
+                                   'articles.csv',
+                                   open_files,
+                                   ('doi:ID',
+                                    'filename',
+                                    'title',
+                                    'journal',
+                                    'year',
+                                    'month',
+                                    'day',
+                                    'ISSN',
+                                    'publisher',
+                                    'citation',
+                                    ':LABEL'))
+
+    # mapping from DOI to text files
+    doi2txt = _doi2txt_fname(text_dir)
+
+    meta_cache = get_cache(meta_cache_dir)
+    cit_cache = get_cache(cit_cache_dir)
+
+    for json_fname in Path(vars_dir).files('*.json')[:max_n]:
+        doi = get_doi(json_fname)
+
+        try:
+            text_fname = doi2txt[doi]
+        except KeyError:
+            log.error('no matching text file for DOI ' + doi)
+            continue
+
+        metadata = get_all_metadata(doi, meta_cache, online=online)
+        citation = get_citation(doi, cit_cache, online=online)
+
+        # create article node
+        articles_csv.writerow((doi, text_fname, metadata['title'], metadata['journal'], metadata['year'],
+                               metadata['month'], metadata['day'], metadata['ISSN'], metadata['publisher'],
+                               citation, 'Article'))
+        # TODO: post-process to remove Articles nodes without Sentence node
+
+    # release opened files
+    for f in open_files:
+        f.close()
+
+
 def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                 relation_csv_dir, max_n=None):
     """
@@ -220,28 +390,13 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     # hold on to open files
     open_files = []
 
-    def create_csv_file(dir, csv_fname,
-                        header=(':START_ID', ':END_ID', ':TYPE')):
-        csv_fname = Path(dir) / csv_fname
-        log.info('creating ' + csv_fname)
-        f = open(csv_fname, 'w', newline='')
-        open_files.append(f)
-        csv_file = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
-        csv_file.writerow(header)
-        return csv_file
-
     Path(nodes_csv_dir).makedirs_p()
     Path(relation_csv_dir).makedirs_p()
 
     # create csv files for nodes
-    articles_csv = create_csv_file(nodes_csv_dir,
-                                   'articles.csv',
-                                   ('doi:ID',
-                                    'filename',
-                                    ':LABEL'))
-
     sentences_csv = create_csv_file(nodes_csv_dir,
                                     'sentences.csv',
+                                    open_files,
                                     ('sentID:ID',
                                      'treeNumber:int',
                                      'charOffsetBegin:int',
@@ -251,11 +406,13 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
 
     variables_csv = create_csv_file(nodes_csv_dir,
                                     'variables.csv',
+                                    open_files,
                                     ('subStr:ID',
                                      ':LABEL'))
 
     events_csv = create_csv_file(nodes_csv_dir,
                                  'events.csv',
+                                 open_files,
                                  ('eventID:ID',
                                   'filename',
                                   'nodeNumber:int',
@@ -267,13 +424,17 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
 
     # create csv files for relations
     has_sent_csv = create_csv_file(relation_csv_dir,
-                                   'has_sent.csv')
+                                   'has_sent.csv',
+                                   open_files)
     has_var_csv = create_csv_file(relation_csv_dir,
-                                  'has_var.csv')
+                                  'has_var.csv',
+                                  open_files)
     has_event_csv = create_csv_file(relation_csv_dir,
-                                    'has_event.csv')
+                                    'has_event.csv',
+                                    open_files)
     tentails_var_csv = create_csv_file(relation_csv_dir,
                                        'tentails_var.csv',
+                                       open_files,
                                        (':START_ID',
                                         ':END_ID',
                                         'transformName',
@@ -309,9 +470,6 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
         scnlp_fname = derive_path(tree_fname, new_dir=scnlp_dir, new_ext='xml')
         xml_tree = etree.parse(scnlp_fname)
         sentences_elem = xml_tree.getroot()[0][0]
-
-        # create article node
-        articles_csv.writerow((doi, text_fname, 'Article'))
 
         tree_number = None
 
@@ -380,6 +538,73 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     # release opened files
     for f in open_files:
         f.close()
+
+
+def rels_to_csv(rels_dir, nodes_csv_dir, relation_csv_dir, max_n=None):
+    """
+    Transform extracted relations to csv tables that can be imported by neo4j
+
+    Parameters
+    ----------
+    rels_dir
+    nodes_csv_dir
+    relation_csv_dir
+    max_n
+
+    Returns
+    -------
+
+    """
+    # hold on to open files
+    open_files = []
+
+    # create csv files for nodes
+    causation_csv = create_csv_file(nodes_csv_dir,
+                                    'causations.csv',
+                                    open_files,
+                                    (':ID',
+                                     'patternName',
+                                     ':LABEL'))
+
+    # create csv files for relations
+    has_cause_csv = create_csv_file(relation_csv_dir,
+                                    'has_cause.csv',
+                                    open_files, )
+    has_effect_csv = create_csv_file(relation_csv_dir,
+                                     'has_effect.csv',
+                                     open_files)
+    has_event_csv = create_csv_file(relation_csv_dir,
+                                    'has_event2.csv',
+                                    open_files)
+
+    causation_n = 0
+
+    for rel_fname in Path(rels_dir).files('*.json')[:max_n]:
+        log.info('adding CausationInst from file ' + rel_fname)
+        doi = get_doi(rel_fname)
+
+        for rec in json.load(rel_fname.open()):
+            causation_id = '{}/CausationInst/{}'.format(doi, causation_n)
+            causation_csv.writerow((causation_id, rec['patternName'], 'CausationInst'))
+            has_cause_csv.writerow((causation_id, rec['fromNodeId'], 'HAS_CAUSE'))
+            has_effect_csv.writerow((causation_id, rec['toNodeId'], 'HAS_EFFECT'))
+            has_event_csv.writerow((rec['sentenceId'], causation_id, 'HAS_EVENT'))
+            causation_n += 1
+
+    # release opened files
+    for f in open_files:
+        f.close()
+
+
+def create_csv_file(csv_dir, csv_fname, open_files,
+                    header=(':START_ID', ':END_ID', ':TYPE')):
+    csv_fname = Path(csv_dir) / csv_fname
+    log.info('creating ' + csv_fname)
+    outf = open(csv_fname, 'w', newline='')
+    csv_file = csv.writer(outf, quoting=csv.QUOTE_MINIMAL)
+    csv_file.writerow(header)
+    open_files.append(outf)
+    return csv_file
 
 
 def postproc_graph(warehouse_home, server_name, password=None):
@@ -549,6 +774,25 @@ def postproc_graph(warehouse_home, server_name, password=None):
         (et1) -[:COOCCURS {n: n}]-> (et2)
         """)
 
+    # --------------------------------------------------------------------------
+    # Create CAUSES relations
+    # --------------------------------------------------------------------------
+    log.info('adding CAUSES relations')
+
+    session.run("""
+         MATCH
+             (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
+             <-[:HAS_CAUSE]- (:CausationInst) -[:HAS_EFFECT]->
+             (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
+         WHERE
+             et1.direction = ei1.direction AND
+             et2.direction = ei2.direction
+         WITH
+             et1, et2, count(*) AS n
+         MERGE
+             (et1) -[:CAUSES {n: n}]-> (et2)
+     """)
+
     session.close()
 
 
@@ -587,6 +831,10 @@ def _doi2txt_fname(text_dir):
             doi2txt[doi] = p
 
     return doi2txt
+
+
+def _expand_file_pats(patterns):
+    return (path for pat in patterns for path in glob(pat))
 
 
 def graph_report(warehouse_home, server_name, password, top_n=50):
@@ -784,60 +1032,119 @@ def print_section(title):
     print(80 * '=' + '\n')
 
 
-def add_relations(rels_dir, warehouse_home, server_name, password=None):
+# Old code for adding metadata and citation directly to Article nodes in a graph.
+# Superseded by csv import.
+
+
+def add_citations(warehouse_home, server_name, cache_dir,
+                  resume=False, password=None, online=True):
     """
-    Add extracted causal relations to graph
+    Add citation string to Article nodes
+
+    Parameters
+    ----------
+    warehouse_home
+    server_name
+    cache_dir
+    resume
+    password
+
+    Returns
+    -------
+
     """
-    add_causation_instances(rels_dir, warehouse_home, server_name, password)
-    add_causes_relations(warehouse_home, server_name, password)
+    session = get_session(warehouse_home, server_name, password=password)
+
+    if resume:
+        query = """
+            MATCH (a:Article)
+            WHERE a.citation is NULL
+            RETURN a.doi as doi"""
+    else:
+        query = """
+            MATCH (a:Article)
+            RETURN a.doi as doi"""
+
+    records = session.run(query)
+
+    try:
+        records.peek()
+    except ResultError:
+        log.info('no Article nodes without citation property')
+        return
+
+    cache = get_cache(cache_dir)
+
+    for rec in records:
+        doi = rec['doi']
+        citation = get_citation(doi, cache, online=online)
+
+        if citation:
+            session.run("""
+            MATCH (a:Article)
+            WHERE a.doi = {doi}
+            SET a.citation = {citation}
+            """, {'doi': doi, 'citation': citation})
+            log.info('added citation for DOI ' + doi)
 
 
-def add_causation_instances(rels_dir, warehouse_home, server_name,
-                            password=None):
-    session = get_session(warehouse_home, server_name, password)
+def add_metadata(warehouse_home, server_name, cache_dir,
+                 resume=False, password=None, online=True):
+    """
+    Add article metadata to Article nodes
 
-    for rel_fname in Path(rels_dir).files('*.json'):
-        log.info('adding CausationInst from file ' + rel_fname)
-        for rec in json.load(rel_fname.open()):
-            r = session.run("""
-            MATCH
-                (e1:EventInst)
-                <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
-                (e2:EventInst)
-            WHERE
-                e1.eventID = {fromNodeId} AND e2.eventID = {toNodeId}
-            WITH e1, e2, s
-            MERGE
-                (e1) <-[:HAS_CAUSE]-
-                (c:CausationInst)
-                -[:HAS_EFFECT]-> (e2)
-            ON CREATE SET
-                c.patternName = [{patternName}]
-            ON MATCH SET
-                c.patternName = c.patternName + {patternName}
-            MERGE
-                (s) -[:HAS_EVENT]-> (c)
-            """, rec)
+    Parameters
+    ----------
+    warehouse_home
+    server_name
+    cache_dir
+    resume
+    password
 
-    session.close()
+    Returns
+    -------
 
+    """
+    session = get_session(warehouse_home, server_name, password=password)
 
-def add_causes_relations(warehouse_home, server_name, password=None):
-    log.info('adding CAUSES relations')
+    if resume:
+        query = """
+            MATCH (a:Article)
+            WHERE ( a.title is NULL OR
+                    a.journal is NULL OR
+                    a.publisher is NULL OR
+                    a.year is NULL OR
+                    a.ISSN is NULL )
+            RETURN a.doi as doi"""
+    else:
+        query = """
+            MATCH (a:Article)
+            RETURN a.doi as doi"""
 
-    session = get_session(warehouse_home, server_name, password)
-    session.run("""
-        MATCH
-            (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
-            <-[:HAS_CAUSE]- (:CausationInst) -[:HAS_EFFECT]->
-            (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
-        WHERE
-            et1.direction = ei1.direction AND
-            et2.direction = ei2.direction
-        WITH
-            et1, et2, count(*) AS n
-        MERGE
-            (et1) -[:CAUSES {n: n}]-> (et2)
-    """)
+    records = session.run(query)
 
-    session.close()
+    try:
+        records.peek()
+    except ResultError:
+        log.info('no Article nodes without title property')
+        return
+
+    cache = get_cache(cache_dir)
+
+    for rec in records:
+        doi = rec['doi']
+        metadata = get_all_metadata(doi, cache, online)
+
+        session.run("""
+                MATCH (a:Article)
+                WHERE a.doi = {doi}
+                SET a.title = {title},
+                    a.journal = {journal},
+                    a.year = {year},
+                    a.month = {month},
+                    a.day = {day},
+                    a.ISSN = {ISSN},
+                    a.publisher = {publisher}
+                """, metadata)
+
+        log.info('added metadata for DOI ' + doi)

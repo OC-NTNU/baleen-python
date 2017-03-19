@@ -11,7 +11,7 @@ from configparser import ConfigParser
 from path import Path
 from nltk.tree import Tree
 
-from baleen.utils import derive_path
+from baleen.utils import derive_path, get_doi
 
 log = logging.getLogger(__name__)
 log.setLevel('DEBUG')
@@ -24,11 +24,11 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
     """
     Tag variable nodes in tree
 
-    Tag variables nodes in trees with "_VAR:f:n:m:e" suffix where
+    Tag variables nodes in trees with "_VAR:f:n:m:e+" suffix where
     f is the name of the parse file,
     n is the tree number,
     m is the variable's node number and
-    e is name of the pattern used for extracting this variable.
+    e is name of the pattern(s) used for extracting this variable.
     Will only output those trees containing at least two variables.
     """
     # At first I used the tregex's '-f' option to print the filename,
@@ -39,11 +39,17 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
     tagged_dir.makedirs_p()
 
     for vars_fname in Path(vars_dir).glob('*.json'):
-        d = defaultdict(list)
+        records = json.load(vars_fname.open())
+
+        if not len(records) > 1:
+            # must contain at least two variables
+            continue
 
         # create a dict mapping each tree number to a list of
         # (nodeNumber, extractName) tuples for its variables
-        for record in json.load(vars_fname.open()):
+        d = defaultdict(list)
+
+        for record in records:
             pair = record['nodeNumber'], record['key']
             d[record['treeNumber']].append(pair)
 
@@ -155,9 +161,11 @@ def parse_matches(matches, pat_name, relation, rel_records):
         lines = matches.strip().split('\n')
         for i in range(0, len(lines), 2):
             from_node, to_node = lines[i:i+2]
-            filename = from_node.split('_VAR_')[-1].split(':')[0]
+            filename, tree_number, node_number, *_ = from_node.split('_VAR_')[-1].split(':')
+            sent_id = get_doi(filename) + '/' + tree_number
             record = dict(
                 filename=filename,
+                sentenceId=sent_id,
                 fromNodeId=from_node.split('_VAR_')[-1],
                 toNodeId=to_node.split('_VAR_')[-1],
                 patternName=pat_name,
