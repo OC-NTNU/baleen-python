@@ -195,7 +195,7 @@ def write_relations(rel_records, rels_dir):
     rels_dir.makedirs_p()
 
     for fname, rec_list in rel_records.items():
-        rels_fname = derive_path(fname, new_dir=rels_dir, append_tags='rels',
+        rels_fname = derive_path(fname, new_dir=rels_dir, append_tags=['rels'],
                                  new_ext='json')
         log.info('writing extracted relations to ' + rels_fname)
         json.dump(rec_list, rels_fname.open('w'), indent=0)
