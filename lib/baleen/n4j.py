@@ -500,7 +500,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                 end = int(sent_elem[0][-1][3].text)
                 sent_chars = text[begin:end]
                 # neo4j-import fails on newlines, so replace all \n and \r with a space
-                sent_chars = pattern.sub(sent_chars)
+                sent_chars = pattern.sub(' ', sent_chars)
                 sentences_csv.writerow((sent_id,
                                         tree_number,
                                         begin,
