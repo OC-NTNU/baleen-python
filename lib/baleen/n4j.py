@@ -7,6 +7,7 @@ import subprocess
 import csv
 import json
 import time
+import re
 from path import Path
 from collections import defaultdict
 from glob import glob
@@ -336,6 +337,7 @@ def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv
 
     meta_cache = get_cache(meta_cache_dir)
     cit_cache = get_cache(cit_cache_dir)
+    pattern = re.compile(r"\s+")
 
     for json_fname in Path(vars_dir).files('*.json')[:max_n]:
         doi = get_doi(json_fname)
@@ -348,6 +350,11 @@ def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv
 
         metadata = get_all_metadata(doi, meta_cache, online=online)
         citation = get_citation(doi, cit_cache, online=online)
+
+        # normalize by stripping whitespace and replacing any remaining whitespace substring
+        # by a single space
+        metadata = pattern.sub(' ', metadata.strip())
+        citation = pattern.sub(' ', citation.strip())
 
         # create article node
         articles_csv.writerow((doi, text_fname, metadata['title'], metadata['journal'], metadata['year'],
@@ -446,6 +453,8 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     # mapping from DOI to text files
     doi2txt = _doi2txt_fname(text_dir)
 
+    pattern = re.compile('[\n\r]')
+
     for json_fname in Path(vars_dir).files('*.json')[:max_n]:
         records = json.load(open(json_fname))
 
@@ -487,6 +496,8 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
                 begin = int(sent_elem[0][0][2].text)
                 end = int(sent_elem[0][-1][3].text)
                 sent_chars = text[begin:end]
+                # neo4j-import fails on newlines, so replace all \n and \r with a space
+                sent_chars = pattern.sub(sent_chars)
                 sentences_csv.writerow((sent_id,
                                         tree_number,
                                         begin,
