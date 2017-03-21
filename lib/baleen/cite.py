@@ -50,7 +50,7 @@ def get_citation(doi, cache,
 
     if not online:
         log.warn('skipping online lookup of citation for DOI {}'.format(doi))
-        return
+        return ''
 
     headers = {'Accept': 'text/bibliography; style={}'.format(style)}
     attempts = 10
