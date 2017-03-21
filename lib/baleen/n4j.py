@@ -353,7 +353,10 @@ def articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_csv
 
         # normalize by stripping whitespace and replacing any remaining whitespace substring
         # by a single space
-        metadata = pattern.sub(' ', metadata.strip())
+        for k, v in metadata.items():
+            if isinstance(v, str):
+                metadata[k] = pattern.sub(' ', v.strip())
+
         citation = pattern.sub(' ', citation.strip())
 
         # create article node
