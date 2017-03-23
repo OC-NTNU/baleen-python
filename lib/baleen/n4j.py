@@ -15,7 +15,7 @@ from os.path import basename, join, abspath
 
 from lxml import etree
 
-from neo4j.v1 import GraphDatabase, basic_auth, ResultError
+from neo4j.v1 import GraphDatabase, basic_auth  # , ResultError
 import neokit
 
 from tabulate import tabulate
@@ -641,36 +641,8 @@ def postproc_graph(warehouse_home, server_name, password=None):
     """
     session = get_session(warehouse_home, server_name, password)
 
-    # --------------------------------------------------------------------------
-    # Constraints
-    # --------------------------------------------------------------------------
-    log.info('creating constraints')
-
-    # Create a unique property constraint on the label and property combination.
-    # If any other node with that label is updated or created with a property
-    # that already exists, the write operation will fail.
-    # This constraint will create an accompanying index.
-    # See http://neo4j.com/docs/stable/query-constraints.html
-
-    session.run("""
-    CREATE CONSTRAINT ON (a:Article)
-    ASSERT a.doi IS UNIQUE
-    """)
-
-    session.run("""
-    CREATE CONSTRAINT ON (s:Sentence)
-    ASSERT s.sentID IS UNIQUE
-    """)
-
-    session.run("""
-    CREATE CONSTRAINT ON (v:VariableType)
-    ASSERT v.subStr IS UNIQUE
-    """)
-
-    session.run("""
-    CREATE CONSTRAINT ON (e:EventInst)
-    ASSERT e.eventID IS UNIQUE
-    """)
+    create_constraints(session)
+    return
 
     # --------------------------------------------------------------------------
     # Remove TENTAILS_VAR edge duplicates
@@ -808,6 +780,43 @@ def postproc_graph(warehouse_home, server_name, password=None):
      """)
 
     session.close()
+
+
+def create_constraints(session):
+    # --------------------------------------------------------------------------
+    # Constraints
+    # --------------------------------------------------------------------------
+    # Create a unique property constraint on the label and property combination.
+    # If any other node with that label is updated or created with a property
+    # that already exists, the write operation will fail.
+    # This constraint will create an accompanying index.
+    # See http://neo4j.com/docs/stable/query-constraints.html
+
+    constraints = {
+        'Article(doi)',
+        'Sentence(sentID)',
+        'EventInst(eventID)',
+        'VariableType(subStr)'
+    }
+
+    for elem in constraints:
+        node, rest = elem.split('(')
+        prop, _ = rest.split(')')
+        log.info('Creating constraint ' + elem)
+        session.run("""
+    CREATE CONSTRAINT ON (n:{node})
+    ASSERT n.{prop} IS UNIQUE
+    """.format(node=node, prop=prop))
+
+    # TODO: replace by db.awaitIndex, once that plugin actually works
+    online = None
+
+    while online != constraints:
+        result = session.run("CALL db.indexes")
+        online = set(r['description'].split(':')[-1] for r in result if r['state'] == 'online')
+        log.info('Constraints online: {}'.format(online))
+
+    log.info('All constraints online')
 
 
 def get_session(warehouse_home, server_name, password=None,
@@ -1083,7 +1092,7 @@ def add_citations(warehouse_home, server_name, cache_dir,
 
     try:
         records.peek()
-    except ResultError:
+    except:  # ResultError:
         log.info('no Article nodes without citation property')
         return
 
@@ -1139,7 +1148,7 @@ def add_metadata(warehouse_home, server_name, cache_dir,
 
     try:
         records.peek()
-    except ResultError:
+    except:  # ResultError:
         log.info('no Article nodes without title property')
         return
 
