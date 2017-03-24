@@ -623,11 +623,7 @@ def create_csv_file(csv_dir, csv_fname, open_files,
 
 def postproc_graph(warehouse_home, server_name, password=None):
     """
-    Post-process graph after import.
-
-    Creates ChangeType/IncreaseType/DecreaseType aggregation nodes,
-    creates co-occurrence relations and
-    imposes constraints and indices.
+    Post-process graph after import
 
     Parameters
     ----------
@@ -636,134 +632,21 @@ def postproc_graph(warehouse_home, server_name, password=None):
     server_name : str
         name of neokit server instance
     password : str
-    silence_loggers : bool
-        silence info logging from the py2neo and httpstream
     """
     session = get_session(warehouse_home, server_name, password)
-
+    prune_tentails(session)
     create_constraints(session)
-    return
+    create_event_types(session)
+    create_cooccurs_relations(session)
+    create_causes_relations(session)
+    session.close()
 
-    # --------------------------------------------------------------------------
-    # Remove TENTAILS_VAR edge duplicates
-    # --------------------------------------------------------------------------
-    log.info('removing TENTAILS_VAR edge duplicates (if any)')
 
-    session.run("""
-    MATCH
-        (v1)-[r:TENTAILS_VAR]->(v2)
-    WITH
-        v1, v2, TAIL (COLLECT (r)) as duplicates
-    FOREACH
-        (r IN duplicates | DELETE r)
-    """)
-
-    # --------------------------------------------------------------------------
-    # Removing non-branching tentailed variables nodes
-    # --------------------------------------------------------------------------
-    # For example, in
-    #
-    #     (global marine primary production) -[:TENTAILS_VAR]->
-    #     (marine primary production) -[:TENTAILS_VAR]->
-    #     (primary production) -[:TENTAILS_VAR]->
-    #     (production)
-    #
-    # The two nodes in the middle are deleted, unless they have tentailed
-    # relations to other nodes (i.e. more than one -[:TENTAILS_VAR]- relation),
-    # or occur in observed events (i.e. have a -[:HAS_VAR]- relation).
-
-    log.info('removing non-branching tentailed variables nodes (if any)')
-
-    session.run("""
-    MATCH
-        (v:VariableType)
-    WITH
-         v,
-         size(()-[:TENTAILS_VAR]->(v)) as inDegree,
-         size((v)-[:TENTAILS_VAR]->()) as outDegree
-    WHERE
-         inDegree = 1 AND
-         outDegree = 1 AND
-         NOT (v)<-[:HAS_VAR]-()
-    MATCH
-         (vIn)-[:TENTAILS_VAR]->(v)-[:TENTAILS_VAR]->(vOut)
-    DETACH DELETE
-         v
-    CREATE
-         (vIn)-[:TENTAILS_VAR]->(vOut)
-    """)
-
-    # --------------------------------------------------------------------------
-    # Create event aggregation nodes
-    # --------------------------------------------------------------------------
-    log.info('creating event aggregation nodes')
-
-    events = ('Change', 'Increase', 'Decrease')
-
-    # TODO 2: merge these loops?
-
-    # For each changing/increasing/decreasing VariableType,
-    # create a ChangeType/IncreaseType/DecreaseType node and
-    # connect them with an HAS_VAR relation.
-    # EventType nodes are therefore not unique.
-    # The redundant "direction" property is to facilitate matching of
-    # IncreaseInst to IncreaseType nodes, DecreaseInst to DecreaseType nodes,
-    # etc.
-    # Python string formatting is used because labels can not be parametrized
-    # in Cypher:
-    # http://stackoverflow.com/questions/24274364/in-neo4j-how-to-set-the-label-as-a-parameter-in-a-cypher-query-from-java
-    for event in events:
-        session.run("""
-        MATCH
-            (v:VariableType) <-[:HAS_VAR]- (ei:{event}Inst)
-        MERGE
-            (v) <-[:HAS_VAR]- (:EventType:{event}Type {{direction: ei.direction}})
-        """.format(event=event))
-
-    # For each combination of EventType & VariableType,
-    # compute the corresponding EventInst count.
-    session.run("""
-    MATCH
-        (et:EventType) -[:HAS_VAR]-> (v:VariableType) <-[:HAS_VAR]- (ei:EventInst)
-    WHERE
-        et.direction = ei.direction
-    WITH
-        et, count(*) AS n
-    SET
-        et.n = n
-    """)
-
-    # --------------------------------------------------------------------------
-    # Create co-occurrence relations
-    # --------------------------------------------------------------------------
-    log.info('creating co-occurrence relations')
-
-    # Compute how many times a combination of
-    # ChangeType/IncreaseType/DecreaseType & VariableType
-    # co-occur in the same sentence.
-    # The id(et1) < id(et2) statement prevents counting co-occurence twice
-    # (because matching is symmetrical).
-    # Store co-occurrence frequency on a new COOCCURS edge.
-
-    session.run("""
-    MATCH
-        (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
-        <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
-        (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
-    WHERE
-        et1.direction = ei1.direction AND
-        et2.direction = ei2.direction AND
-        id(et1) < id(et2)
-    WITH
-        et1, et2, count(*) AS n
-    MERGE
-        (et1) -[:COOCCURS {n: n}]-> (et2)
-        """)
-
-    # --------------------------------------------------------------------------
-    # Create CAUSES relations
-    # --------------------------------------------------------------------------
-    log.info('adding CAUSES relations')
+def create_causes_relations(session):
+    # Compute how many times a combination of ChangeType/IncreaseType/DecreaseType & VariableType
+    # is connected by a CausationInst.
+    # Store count on a new CAUSES relation between event types.
+    log.info('creating CAUSES relations')
 
     session.run("""
          MATCH
@@ -779,7 +662,182 @@ def postproc_graph(warehouse_home, server_name, password=None):
              (et1) -[:CAUSES {n: n}]-> (et2)
      """)
 
-    session.close()
+
+def create_cooccurs_relations(session):
+    # Compute how many times a combination of ChangeType/IncreaseType/DecreaseType & VariableType
+    # co-occurs in the same sentence.
+    # The id(et1) < id(et2) statement prevents counting co-occurence twice (because matching is symmetrical).
+    # Store co-occurrence count on a new COOCCURS relation between event types.
+    log.info('creating COOCCURS relations')
+
+    run_write_query(session, """
+        MATCH
+            (et1:EventType) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (ei1:EventInst)
+            <-[:HAS_EVENT]- (s:Sentence) -[:HAS_EVENT]->
+            (ei2:EventInst) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (et2:EventType)
+        WHERE
+            et1.direction = ei1.direction AND
+            et2.direction = ei2.direction AND
+            id(et1) < id(et2)
+        WITH
+            et1, et2, count(*) AS n
+        MERGE
+            (et1) -[:COOCCURS {n: n}]-> (et2)
+    """)
+
+
+def create_event_types(session):
+    # For each changing/increasing/decreasing VariableType,
+    # create a ChangeType/IncreaseType/DecreaseType node and
+    # connect them with an HAS_VAR relation.
+    # EventType nodes are therefore not unique.
+    # The redundant "direction" property is to facilitate matching of
+    # IncreaseInst to IncreaseType nodes, DecreaseInst to DecreaseType nodes, etc.
+    # Python string formatting is used because labels can not be parametrized
+    # in Cypher:
+    # http://stackoverflow.com/questions/24274364/in-neo4j-how-to-set-the-label-as-a-parameter-in-a-cypher-query-from-java
+
+    log.info('creating event aggregation nodes')
+
+    for event in 'Change', 'Increase', 'Decrease':
+        log.info('creating {}Type nodes'.format(event))
+        query = """
+            MATCH
+                (v:VariableType) <-[:HAS_VAR]- (ei:{event}Inst)
+            WITH DISTINCT v
+            MERGE
+                (v) <-[:HAS_VAR]- (:EventType:{event}Type {{direction: "{direction}" }})""".format(
+            event=event, direction=event.lower())
+        run_write_query(session, query)
+
+        log.info('computing {}Inst counts'.format(event))
+        query = """
+            MATCH
+                (et:{event}Type) -[:HAS_VAR]-> (:VariableType) <-[:HAS_VAR]- (:{event}Inst)
+            WITH
+                et, count(*) AS n
+            SET
+                et.n = n""".format(
+            event=event, direction=event.lower())
+        run_write_query(session, query)
+
+        # The implementation above does not look like a natural solution in Cypher.
+        # However, for reasons I don't understand, implementations like the one below are incredibly slow
+        # (i.e. do not terminate even after running for several hours).
+
+        # for event in 'Change', 'Increase', 'Decrease':
+        #     run_write_query(session, """
+        #     MATCH
+        #         (v:VariableType) <-[:HAS_VAR]- (ei:{event}Inst)
+        #     MERGE
+        #         (v) <-[:HAS_VAR2]- (et:EventType:{event}Type)
+        #     ON CREATE SET
+        #         et.n = 1,
+        #         et.direction = ei.direction
+        #     ON MATCH SET
+        #         et.n = et.n + 1
+        #     """.format(event=event))
+
+
+def prune_tentails(session):
+    log.info('start pruning of tentailed variables')
+
+    result = session.run("MATCH (v:VariableType) RETURN count(*) as Count")
+    start_count = list(result)[0]['Count']
+
+    log.info("delete TENTAILS_VAR edge duplicates")
+    # TODO: fix the upstream cause of these duplicates
+
+    query1 = """
+    MATCH
+        (v1)-[r:TENTAILS_VAR]->(v2)
+    WITH
+        v1, v2, TAIL (COLLECT (r)) as duplicates
+    FOREACH
+        (r IN duplicates | DELETE r)
+    """
+
+    run_write_query(session, query1)
+
+    # Iteratively remove VariableType nodes at the end of a tentailment chain,
+    # unless they occur in observed events (i.e. have a -[:HAS_VAR]- relation).
+    query2 = """
+    MATCH
+        (v:VariableType)
+    WHERE
+        size((v)-->()) = 0 AND NOT (:EventInst)-[:HAS_VAR]->(v)
+    WITH
+        v LIMIT 25000
+    DETACH DELETE
+        v
+    """
+
+    # Iteratively delete non-branching tentailed variables nodes
+    #
+    # For example, in
+    #
+    #     (global marine primary production) -[:TENTAILS_VAR]->
+    #     (marine primary production) -[:TENTAILS_VAR]->
+    #     (primary production) -[:TENTAILS_VAR]->
+    #     (production)
+    #
+    # The two nodes in the middle are deleted, unless they have tentailed
+    # relations to other nodes (i.e. more than one -[:TENTAILS_VAR]- relation),
+    # or occur in observed events (i.e. have a -[:HAS_VAR]- relation).
+
+    query3 = """
+    MATCH
+        (v1:VariableType) -[:TENTAILS_VAR]-> (v2:VariableType) -[:TENTAILS_VAR]-> (v3:VariableType)
+    WHERE
+        size((v2)--()) = 2 AND (size((v1)--()) > 2 OR  (:EventInst)-[:HAS_VAR]->(v1))
+    WITH
+        DISTINCT v1, v2, v3 LIMIT 25000
+    DETACH DELETE
+            v2
+    MERGE
+        (v1) -[:TENTAILS_VAR]-> (v3)
+    """
+
+    # Pruning is performed iteratively because the result of one pruning operation often creates the
+    # right context for another application of the same operation.
+    deletion_count = None
+
+    # Repeat queries until no more deletions occur.
+    while deletion_count != 0:
+        deletion_count = 0
+        log.info('pruning tentailed VariableType nodes')
+        deletion_count += iterative_deletion(session, query2)
+        log.info('removing non-branching tentailed variables nodes')
+        deletion_count += iterative_deletion(session, query3)
+
+    result = session.run("MATCH (v:VariableType) RETURN count(*) as Count")
+    end_count = list(result)[0]['Count']
+
+    log.info('pruned {:,} VarType nodes, from {:,} to {:,} '.format(start_count - end_count, start_count, end_count))
+    log.info('end pruning of tentailed variables')
+
+
+def iterative_deletion(session, query, counter_name='nodes_deleted'):
+    deletion_count = None
+    deletion_count_total = 0
+    iteration_count = 0
+    log.info('entering iterative deletion with statement ' + query)
+
+    while deletion_count != 0:
+        iteration_count += 1
+        summary = run_write_query(session, query)
+        deletion_count = getattr(summary.counters, counter_name)
+        deletion_count_total += deletion_count
+        log.info('{:,} deleted after iteration {}'.format(deletion_count_total, iteration_count))
+
+    return deletion_count_total
+
+
+def run_write_query(session, query):
+    result = session.run(query)
+    summary = result.consume()
+    log.info(summary_report(summary))
+    return summary
 
 
 def create_constraints(session):
@@ -796,13 +854,16 @@ def create_constraints(session):
         'Article(doi)',
         'Sentence(sentID)',
         'EventInst(eventID)',
+        'ChangeInst(eventID)',
+        'IncreaseInst(eventID)',
+        'DecreaseInst(eventID)',
         'VariableType(subStr)'
     }
 
     for elem in constraints:
         node, rest = elem.split('(')
         prop, _ = rest.split(')')
-        log.info('Creating constraint ' + elem)
+        log.info('Creating uniqueness constraint on ' + elem)
         session.run("""
     CREATE CONSTRAINT ON (n:{node})
     ASSERT n.{prop} IS UNIQUE
@@ -1053,6 +1114,18 @@ def print_section(title):
     print(80 * '=')
     print(title)
     print(80 * '=' + '\n')
+
+
+def summary_report(summary, prefix='\n', hide_attrib={'statement', 'statement_type'}):
+    lines = []
+
+    for attrib in dir(summary):
+        if not attrib.startswith('__') and attrib not in hide_attrib:
+            value = getattr(summary, attrib)
+            if value:
+                lines.append('{}: {}'.format(attrib, value))
+
+    return prefix + '\n'.join(lines)
 
 
 # Old code for adding metadata and citation directly to Article nodes in a graph.
