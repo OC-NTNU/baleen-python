@@ -88,7 +88,8 @@ def create_unique_csv_nodes(file_pats, out_dir):
     """
     Create CSV files with unique nodes
     """
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     dd = defaultdict(list)
 
     # create mapping from file basenames to corresponding file paths
@@ -110,7 +111,7 @@ def create_unique_csv_nodes(file_pats, out_dir):
                     uniq_lines.add(line)
 
         out_fname = out_dir / fname
-        log.info('writing unique csv nodes to ' + out_fname)
+        log.info('writing unique csv nodes to {}'.format(out_fname))
 
         with open(out_fname, 'w') as outf:
             outf.write(header)
@@ -173,6 +174,7 @@ def neo4j_import_multi(warehouse_home, server_name, node_file_pats, rel_file_pat
     if options:
         args += options.split()
 
+    args = [str(a) for a in args]
     log.info('running subprocess: ' + ' '.join(args))
 
     completed_proc = subprocess.run(args)
