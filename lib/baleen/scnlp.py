@@ -119,7 +119,7 @@ def core_nlp(input,
     cmd = ' '.join(cmd)
     log.info('\n' + cmd)
     ret = check_output(cmd, shell=True, universal_newlines=True)
-    log.info('\n' + ret)
+    log.info('\n {}'.format(ret))
 
     return ret
 
@@ -137,7 +137,7 @@ def extract_parse_trees(scnlp_files, parse_dir):
         parse_fname = derive_path(scnlp_fname,
                                   new_dir=parse_dir,
                                   new_ext='.parse')
-        log.info("writing " + parse_fname)
+        log.info('writing {}'.format(parse_fname))
 
         with open(parse_fname, "wt", encoding="utf-8") as parse_file:
             for parse_elem in nlp_doc.findall(".//parse"):
@@ -157,7 +157,7 @@ def extract_lemmatized_parse_trees(scnlp_files, parse_dir):
         parse_fname = derive_path(scnlp_fname,
                                   new_dir=parse_dir,
                                   new_ext='.parse')
-        log.info("writing " + parse_fname)
+        log.info('writing {}'.format(parse_fname))
 
         with open(parse_fname, "wt", encoding="utf-8") as parse_file:
             for sentence_elem in nlp_doc.iterfind(".//sentence"):

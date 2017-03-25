@@ -8,7 +8,7 @@ import subprocess
 from collections import defaultdict
 from configparser import ConfigParser
 
-from path import Path
+from pathlib import Path
 from nltk.tree import Tree
 
 from baleen.utils import derive_path, get_doi
@@ -35,8 +35,9 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
     # but when traversing the files in a directory,
     # it prints the wrong filenames (after the first one?),
     # so now the filename is encoded in the node label too.
+    trees_dir = Path(trees_dir)
     tagged_dir = Path(tagged_dir)
-    tagged_dir.makedirs_p()
+    tagged_dir.mkdir(parents=True, exist_ok=True)
 
     for vars_fname in Path(vars_dir).glob('*.json'):
         records = json.load(vars_fname.open())
@@ -48,13 +49,15 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
         # create a dict mapping each tree number to a list of
         # (nodeNumber, extractName) tuples for its variables
         d = defaultdict(list)
+        record = {}
 
         for record in records:
             pair = record['nodeNumber'], record['key']
             d[record['treeNumber']].append(pair)
 
         lemtree_fname = record['filename']
-        parses = (Path(trees_dir) / lemtree_fname).lines()
+        parses_path = (trees_dir / lemtree_fname)
+        parses = parses_path.open().readlines()
         tagged_parses = []
 
         for tree_number, pairs in d.items():
@@ -84,8 +87,9 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
 
         if tagged_parses:
             tagged_fname = derive_path(lemtree_fname, new_dir=tagged_dir)
-            log.info('writing tagged trees to ' + tagged_fname)
-            tagged_fname.write_lines(tagged_parses)
+            log.info('writing tagged trees to {}'.format(tagged_fname))
+            with tagged_fname.open('w') as outf:
+                outf.writelines(tagged_parses)
 
 
 def extract_relations(class_path,
@@ -119,14 +123,17 @@ def read_patterns(pattern_path):
     # where the section defines the name of the pattern
     pat_defs = ConfigParser()
     pattern_path = Path(pattern_path)
+
     # pattern_path can be single filename or directory
-    if pattern_path.isdir():
-        pattern_fnames = pattern_path.files()
+    if pattern_path.is_dir():
+        pattern_fnames = pattern_path.glob('*')
     else:
         pattern_fnames = [pattern_path]
+
     for fname in pattern_fnames:
-        log.info('reading relation extraction patterns from ' + fname)
+        log.info('reading relation extraction patterns from {}'.format(fname))
         pat_defs.read_file(fname.open())
+
     return pat_defs
 
 
@@ -152,7 +159,7 @@ def tregex(class_path,
 
     log.info('\n' + cmd)
     matches = subprocess.check_output(cmd, shell=True, universal_newlines=True)
-    log.debug('\n' + matches)
+    log.debug('\n{}'.format(matches))
     return matches
 
 
@@ -160,7 +167,7 @@ def parse_matches(matches, pat_name, relation, rel_records):
     if matches:
         lines = matches.strip().split('\n')
         for i in range(0, len(lines), 2):
-            from_node, to_node = lines[i:i+2]
+            from_node, to_node = lines[i:i + 2]
             filename, tree_number, node_number, *_ = from_node.split('_VAR_')[-1].split(':')
             sent_id = get_doi(filename) + '/' + tree_number
             record = dict(
@@ -171,6 +178,7 @@ def parse_matches(matches, pat_name, relation, rel_records):
                 patternName=pat_name,
                 relation=relation)
             rel_records[filename].append(record)
+
 
 # Old version for use with '-f' option
 #
@@ -192,10 +200,10 @@ def write_relations(rel_records, rels_dir):
     write extracted relations per file as json records
     """
     rels_dir = Path(rels_dir)
-    rels_dir.makedirs_p()
+    rels_dir.mkdir(parents=True, exist_ok=True)
 
     for fname, rec_list in rel_records.items():
         rels_fname = derive_path(fname, new_dir=rels_dir, append_tags=['rels'],
                                  new_ext='json')
-        log.info('writing extracted relations to ' + rels_fname)
+        log.info('writing extracted relations to {}'.format(rels_fname))
         json.dump(rec_list, rels_fname.open('w'), indent=0)

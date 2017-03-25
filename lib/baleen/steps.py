@@ -1,9 +1,13 @@
 from argh import arg
 
 from baleen.arghconfig import docstring
-
-from baleen import scnlp, vars, n4j, cite, rels
+from baleen import scnlp, vars, cite, rels
 from baleen.utils import remove_any
+from baleen.n4j.csvimport import articles_to_csv, vars_to_csv, rels_to_csv, neo4j_import, neo4j_import_multi, \
+    create_unique_csv_nodes
+from baleen.n4j.postproc import postproc_graph, add_citations, add_metadata
+from baleen.n4j.report import graph_report
+from baleen.n4j.server import setup_server, start_server, stop_server, remove_server
 
 
 # TODO 3: consider defining __all__
@@ -137,54 +141,53 @@ def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir,
 
 
 @arg('--max-n-vars', type=int)
-@docstring(n4j.articles_to_csv)
+@docstring(articles_to_csv)
 def arts2csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_dir, max_n_vars=None, online=True):
-    n4j.articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_dir, max_n_vars, online)
+    articles_to_csv(vars_dir, text_dir, meta_cache_dir, cit_cache_dir, nodes_dir, max_n_vars, online)
 
 
 @arg('--max-n-vars', type=int)
-@docstring(n4j.vars_to_csv)
+@docstring(vars_to_csv)
 def vars2csv(vars_dir, scnlp_dir, text_dir, nodes_dir, relations_dir,
              max_n_vars=None):
-    n4j.vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_dir,
-                    relations_dir, max_n_vars)
+    vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_dir,
+                relations_dir, max_n_vars)
 
 
 @arg('--max-n-vars', type=int)
-@docstring(n4j.rels_to_csv)
+@docstring(rels_to_csv)
 def rels2csv(rels_dir, nodes_dir, relations_dir, max_n_vars=None):
-    n4j.rels_to_csv(rels_dir, nodes_dir, relations_dir, max_n_vars)
+    rels_to_csv(rels_dir, nodes_dir, relations_dir, max_n_vars)
 
 
-@docstring(n4j.neo4j_import)
+@docstring(neo4j_import)
 def toneo(warehouse_home, server_name, nodes_dir, relations_dir, options=None):
-    n4j.neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir,
-                     options=options)
+    neo4j_import(warehouse_home, server_name, nodes_dir, relations_dir, options=options)
 
 
-@docstring(n4j.neo4j_import_multi)
+@docstring(neo4j_import_multi)
 def multi_toneo(warehouse_home, server_name, node_file_pats, rel_file_pats, exclude_file_pats,
                 options=None):
-    n4j.neo4j_import_multi(warehouse_home, server_name,
-                           node_file_pats.split(':'),
-                           rel_file_pats.split(':'),
-                           exclude_file_pats.split(':'),
-                           options=options)
+    neo4j_import_multi(warehouse_home, server_name,
+                       node_file_pats.split(':'),
+                       rel_file_pats.split(':'),
+                       exclude_file_pats.split(':'),
+                       options=options)
 
 
-@docstring(n4j.create_unique_csv_nodes)
+@docstring(create_unique_csv_nodes)
 def uniq(file_pats, out_dir):
-    n4j.create_unique_csv_nodes(file_pats=file_pats.split(':'), out_dir=out_dir)
+    create_unique_csv_nodes(file_pats=file_pats.split(':'), out_dir=out_dir)
 
 
-@docstring(n4j.postproc_graph)
+@docstring(postproc_graph)
 def ppgraph(warehouse_home, server_name, password=None):
-    n4j.postproc_graph(warehouse_home, server_name, password)
+    postproc_graph(warehouse_home, server_name, password)
 
 
-@docstring(n4j.graph_report)
+@docstring(graph_report)
 def report(warehouse_home, server_name, password=None):
-    n4j.graph_report(warehouse_home, server_name, password)
+    graph_report(warehouse_home, server_name, password)
 
 
 def clean(dir):
@@ -192,30 +195,6 @@ def clean(dir):
     Clean output
     """
     remove_any(dir)
-
-
-setup_server = n4j.setup_server
-remove_server = n4j.remove_server
-start_server = n4j.start_server
-stop_server = n4j.stop_server
-
-
-@arg('-r', '--resume', help='toggle default for resuming process')
-@arg('-o', '--online', help='toggle default for using online lookup')
-@docstring(n4j.add_citations)
-def add_cit(warehouse_home, server_name, cache_dir, resume=False,
-            password=None, online=True):
-    n4j.add_citations(warehouse_home, server_name, cache_dir, resume=resume,
-                      password=password, online=online)
-
-
-@arg('-r', '--resume', help='toggle default for resuming process')
-@arg('-o', '--online', help='toggle default for using online lookup')
-@docstring(n4j.add_metadata)
-def add_meta(warehouse_home, server_name, cache_dir, resume=False,
-             password=None, online=True):
-    n4j.add_metadata(warehouse_home, server_name, cache_dir, resume=resume,
-                     password=password, online=online)
 
 
 @docstring(cite.clean_metadata_cache)
@@ -231,3 +210,23 @@ def tag_trees(vars_dir, trees_dir, tagged_dir):
 @docstring(rels.extract_relations)
 def ext_rels(class_path, tagged_dir, pattern_path, rels_dir):
     rels.extract_relations(class_path, tagged_dir, pattern_path, rels_dir)
+
+
+# Old commands superseded by CSV import of citations and metadata
+
+@arg('-r', '--resume', help='toggle default for resuming process')
+@arg('-o', '--online', help='toggle default for using online lookup')
+@docstring(add_citations)
+def add_cit(warehouse_home, server_name, cache_dir, resume=False,
+            password=None, online=True):
+    add_citations(warehouse_home, server_name, cache_dir, resume=resume,
+                  password=password, online=online)
+
+
+@arg('-r', '--resume', help='toggle default for resuming process')
+@arg('-o', '--online', help='toggle default for using online lookup')
+@docstring(add_metadata)
+def add_meta(warehouse_home, server_name, cache_dir, resume=False,
+             password=None, online=True):
+    add_metadata(warehouse_home, server_name, cache_dir, resume=resume,
+                 password=password, online=online)

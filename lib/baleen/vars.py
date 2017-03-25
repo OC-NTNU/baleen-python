@@ -5,14 +5,13 @@ extract, prune and process variables
 import json
 import logging
 import re
-from os.path import join, dirname, splitext
 from subprocess import check_output, STDOUT
 from tempfile import TemporaryDirectory
-from path import Path
+from pathlib import Path
 
 from lxml import etree
 
-from baleen.utils import make_dir, file_list, derive_path
+from baleen.utils import derive_path
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ def extract_vars(extract_vars_exec, trees_dir, vars_dir, resume=RESUME_EXTRACT):
     # universal_newlines=True is passed so the return value will be a string
     # rather than bytes
     ret = check_output(cmd, shell=True, stderr=STDOUT, universal_newlines=True)
-    log.info("\n" + ret)
+    log.info('\n{}'.format(ret))
 
 
 def preproc_vars(trans_exec, trans_fname, in_vars_dir, out_vars_dir,
@@ -59,15 +58,15 @@ def preproc_vars(trans_exec, trans_fname, in_vars_dir, out_vars_dir,
     # universal_newlines=True is passed so the return value will be a string
     # rather than bytes
     ret = check_output(cmd, shell=True, universal_newlines=True)
-    log.info('\n' + ret)
+    log.info('\n{}'.format(ret))
 
-    Path(out_vars_dir).makedirs_p()
+    Path(out_vars_dir).mkdir(parents=True, exist_ok=True)
 
-    for in_vars_fname in Path(tmp_dir).files():
+    for in_vars_fname in Path(tmp_dir).glob('*.json'):
         out_vars_fname = derive_path(in_vars_fname, new_dir=out_vars_dir)
 
         if resume and out_vars_fname.exists():
-            log.info('skipping existing preprocessed file ' + out_vars_fname)
+            log.info('skipping existing preprocessed file {}'.format(out_vars_fname))
             continue
 
         records = json.load(open(in_vars_fname))
@@ -75,14 +74,13 @@ def preproc_vars(trans_exec, trans_fname, in_vars_dir, out_vars_dir,
         # (i.e. from which a node was deleted)
         # Also remove empty vars or "NP" vars
         out_vars_records = [rec for rec in records
-                            if rec['subStr'] not in ['','NP'] and
-                            not 'descendants' in rec]
-        if out_vars_fname:
-            log.info('writing to preprocessed variable file ' + out_vars_fname)
+                            if rec['subStr'] not in ['', 'NP'] and
+                            'descendants' not in rec]
+        if out_vars_records:
+            log.info('writing to preprocessed variable file {}'.format(out_vars_fname))
             json.dump(out_vars_records, out_vars_fname.open('w'), indent=0)
         else:
-            log.info('skipping empty preprocessed variable file ' +
-                     out_vars_fname)
+            log.info('skipping empty preprocessed variable file {}'.format(out_vars_fname))
 
 
 def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir, resume=False,
@@ -104,7 +102,7 @@ def prune_vars(prune_vars_exec, in_vars_dir, out_vars_dir, resume=False,
     # universal_newlines=True is passed so the return value will be a string
     # rather than bytes
     ret = check_output(cmd, shell=True, stderr=STDOUT, universal_newlines=True)
-    log.info("\n" + ret)
+    log.info('\n{}'.format(ret))
 
 
 def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
@@ -119,30 +117,33 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
     ----------
     vars_dir : str
         directory of files with extracted variables in json format
-    scnlp_dir : str
+    scnlp_dir : str or Path
         directory containing scnlp output in xml format
     resume: bool
        resume process, skipping files that already have offsets
     """
-    for var_fname in Path(vars_dir).files():
+    scnlp_dir = Path(scnlp_dir)
+
+    for var_fname in Path(vars_dir).glob('*.json'):
         records = json.load(open(var_fname))
 
         try:
             rec = records[0]
         except IndexError:
-            log.info('skipping file without extracted variables: ' + var_fname)
+            log.info('skipping file without extracted variables: {}'.format(var_fname))
             continue
 
         if (resume and records and
                 rec.get('charOffsetBegin') and
                 rec.get('charOffsetEnd')):
-            log.info('skipping file with existing offsets: ' + var_fname)
+            log.info('skipping file with existing offsets: {}'.format(var_fname))
             continue
 
-        scnlp_fname = join(scnlp_dir, splitext(rec['filename'])[0] + '.xml')
-        xml_tree = etree.parse(scnlp_fname)
+        scnlp_fname = scnlp_dir / Path(rec['filename']).with_suffix('.xml')
+        xml_tree = etree.parse(scnlp_fname.open())
         sentences_elem = xml_tree.find('.//sentences')
         tree_number = None
+        node2indices = []
 
         for rec in records:
             if rec['treeNumber'] != tree_number:
@@ -156,7 +157,7 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
             rec['charOffsetBegin'], rec['charOffsetEnd'] = indices
 
         with open(var_fname, 'w') as outf:
-            log.info('adding offsets to file: ' + var_fname)
+            log.info('adding offsets to file: {}'.format(var_fname))
             json.dump(records, outf, indent=0)
 
 
@@ -172,7 +173,7 @@ def parse_pstree(parse, tokens_elem):
     open_b, close_b = '()'
     open_pattern, close_pattern = (re.escape(open_b), re.escape(close_b))
     node_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
-    #leaf_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
+    # leaf_pattern = '[^\s%s%s]+' % (open_pattern, close_pattern)
     # Modified original leaf pattern from NLTK to accommodate case like
     # (NP (NP (DT the) (CD 8 1/2) (NN day) (NN period))
     # where the leaf "8 1/2" contains whitespace

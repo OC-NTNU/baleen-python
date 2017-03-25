@@ -2,6 +2,14 @@
 support for command line scripts with Argh and ConfigParser
 """
 
+import os
+import sys
+import subprocess
+import configparser
+import logging
+
+import argh
+
 """
 # python usage sample
 
@@ -45,14 +53,6 @@ arg21 = 'b'
 kw21 = 1
 kw22 = true
 """
-
-import os
-import sys
-import subprocess
-import configparser
-import logging
-
-import argh
 
 log = logging.getLogger(__name__)
 
@@ -196,6 +196,7 @@ def _inject_defaults(functions, config, section, use_namespace):
         # log.info(argh_map)
 
         # get function arguments through introspection
+        # noinspection PyProtectedMember
         for func_arg in argh.assembling._get_args_from_signature(func):
             # log.info(func_arg)
             opt_str = func_arg['option_strings']
@@ -249,7 +250,7 @@ def _get_config_value(config, section, config_name, func_arg, argh_arg):
     # e.g. func(number=10)
     default_type = type(func_arg.get('default'))
 
-    if (given_type is int or default_type is int):
+    if given_type is int or default_type is int:
         # value must be an int
         config_value = config.getint(section, config_name)
     elif (given_type is bool or
@@ -307,7 +308,7 @@ def run_commands(functions):
 
     Parameters
     ----------
-    steps : list
+    functions : list
         list of functions
     """
     # Background: we can not simply call all functions, because in that case
