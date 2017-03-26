@@ -69,7 +69,7 @@ def preproc_vars(trans_exec, trans_fname, in_vars_dir, out_vars_dir,
             log.info('skipping existing preprocessed file {}'.format(out_vars_fname))
             continue
 
-        records = json.load(open(in_vars_fname))
+        records = json.load(in_vars_fname.open())
         # Remove any var that has descendents
         # (i.e. from which a node was deleted)
         # Also remove empty vars or "NP" vars
@@ -125,7 +125,7 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
     scnlp_dir = Path(scnlp_dir)
 
     for var_fname in Path(vars_dir).glob('*.json'):
-        records = json.load(open(var_fname))
+        records = json.load(var_fname.open())
 
         try:
             rec = records[0]
@@ -156,7 +156,7 @@ def add_offsets(vars_dir, scnlp_dir, resume=RESUME_OFFSET):
             indices = node2indices[rec['nodeNumber']]
             rec['charOffsetBegin'], rec['charOffsetEnd'] = indices
 
-        with open(var_fname, 'w') as outf:
+        with var_fname.open('w') as outf:
             log.info('adding offsets to file: {}'.format(var_fname))
             json.dump(records, outf, indent=0)
 

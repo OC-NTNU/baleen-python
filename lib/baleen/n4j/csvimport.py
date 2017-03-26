@@ -102,7 +102,7 @@ def create_unique_csv_nodes(file_pats, out_dir):
         header = prev_header = None
 
         for path in paths:
-            with open(path) as inf:
+            with path.open() as inf:
                 header = inf.readline()
                 if prev_header:
                     assert header == prev_header
@@ -113,7 +113,7 @@ def create_unique_csv_nodes(file_pats, out_dir):
         out_fname = out_dir / fname
         log.info('writing unique csv nodes to {}'.format(out_fname))
 
-        with open(out_fname, 'w') as outf:
+        with out_fname.open('w') as outf:
             outf.write(header)
             outf.writelines(uniq_lines)
 
@@ -350,7 +350,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
     filenames = list(Path(vars_dir).glob('*.json'))[:max_n]
 
     for json_fname in filenames:
-        records = json.load(open(json_fname))
+        records = json.load(json_fname.open())
 
         if not records:
             log.warning('skipping empty variables file: {}'.format(json_fname))
@@ -366,7 +366,7 @@ def vars_to_csv(vars_dir, scnlp_dir, text_dir, nodes_csv_dir,
             log.error('no matching text file for DOI ' + doi)
             continue
 
-        text = open(text_fname).read()
+        text = text_fname.open().read()
 
         # read corenlp analysis
         tree_fname = records[0]['filename']
@@ -507,7 +507,7 @@ def create_csv_file(csv_dir, csv_fname, open_files,
                     header=(':START_ID', ':END_ID', ':TYPE')):
     csv_fname = Path(csv_dir) / csv_fname
     log.info('creating {}'.format(csv_fname))
-    outf = open(csv_fname, 'w', newline='')
+    outf = csv_fname.open('w', newline='')
     csv_file = csv.writer(outf, quoting=csv.QUOTE_MINIMAL)
     csv_file.writerow(header)
     open_files.append(outf)
