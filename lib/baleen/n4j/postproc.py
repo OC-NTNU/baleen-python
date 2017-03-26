@@ -168,7 +168,7 @@ def create_event_types(session):
             MATCH
                 (v:VariableType) <-[:HAS_VAR]- (ei:{event}Inst)
             WITH DISTINCT v
-            MERGE
+            CREATE
                 (v) <-[:HAS_VAR]- (:EventType:{event}Type {{direction: "{direction}" }})""".format(
             event=event, direction=event.lower())
         run_write_query(session, query)
@@ -187,6 +187,7 @@ def create_event_types(session):
         # The implementation above does not look like a natural solution in Cypher.
         # However, for reasons I don't understand, implementations like the one below are incredibly slow
         # (i.e. do not terminate even after running for several hours).
+        # The problem appears to be the MERGE...
 
         # for event in 'Change', 'Increase', 'Decrease':
         #     run_write_query(session, """
