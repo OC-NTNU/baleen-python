@@ -159,7 +159,7 @@ def extract_lemmatized_parse_trees(scnlp_files, parse_dir):
                                   new_ext='.parse')
         log.info('writing {}'.format(parse_fname))
 
-        with open(parse_fname, "wt", encoding="utf-8") as parse_file:
+        with parse_fname.open("wt", encoding="utf-8") as parse_file:
             for sentence_elem in nlp_doc.iterfind(".//sentence"):
                 lemmas = sentence_elem.iterfind("tokens/token/lemma")
                 word_parse = sentence_elem.find("parse").text.strip()
