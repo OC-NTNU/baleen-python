@@ -22,13 +22,24 @@ def postproc_graph(warehouse_home, server_name, password=None):
         name of neokit server instance
     password : str
     """
+    # TODO creating new sessions should not be necessary...
+
     session = get_session(warehouse_home, server_name, password)
     prune_tentails(session)
+
+    session = get_session(warehouse_home, server_name, password)
     create_constraints(session)
+
+    session = get_session(warehouse_home, server_name, password)
     create_event_types(session)
+
+    session = get_session(warehouse_home, server_name, password)
     create_cooccurs_relations(session)
+
+    session = get_session(warehouse_home, server_name, password)
     create_causes_relations(session)
-    session.close()
+
+
 
 
 def prune_tentails(session):
@@ -221,7 +232,7 @@ def create_cooccurs_relations(session):
             id(et1) < id(et2)
         WITH
             et1, et2, count(*) AS n
-        MERGE
+        CREATE
             (et1) -[:COOCCURS {n: n}]-> (et2)
     """)
 
@@ -242,7 +253,7 @@ def create_causes_relations(session):
              et2.direction = ei2.direction
          WITH
              et1, et2, count(*) AS n
-         MERGE
+         CREATE
              (et1) -[:CAUSES {n: n}]-> (et2)
      """)
 

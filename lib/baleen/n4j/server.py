@@ -133,5 +133,5 @@ def get_session(warehouse_home, server_name, password=None,
     else:
         driver = GraphDatabase.driver(server_url, encrypted=encrypted)
 
-    session = driver.session()
-    return session
+    with driver.session() as session:
+        return session
