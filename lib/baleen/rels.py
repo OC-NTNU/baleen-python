@@ -14,7 +14,7 @@ from nltk.tree import Tree
 from baleen.utils import derive_path, get_doi
 
 log = logging.getLogger(__name__)
-log.setLevel('DEBUG')
+log.setLevel('INFO')
 
 
 # TODO 3: doc strings
@@ -57,13 +57,16 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
 
         lemtree_fname = record['filename']
         parses_path = (trees_dir / lemtree_fname)
+        log.info('reading parses from {}'.format(parses_path))
         parses = parses_path.open().readlines()
         tagged_parses = []
 
         for tree_number, pairs in d.items():
             if len(pairs) > 1:
                 # tree numbers in records count from one
-                tree = Tree.fromstring(parses[tree_number - 1])
+                lbs = parses[tree_number - 1]
+                log.debug(lbs)
+                tree = Tree.fromstring(lbs)
                 # get NLTK-style indices for all nodes in a preorder
                 # traversal of the tree
                 positions = tree.treepositions()
