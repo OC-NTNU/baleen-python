@@ -75,7 +75,15 @@ def tag_var_nodes(vars_dir, trees_dir, tagged_dir):
                 for node_number, key in pairs:
                     # node numbers in records count from one
                     position = positions[node_number - 1]
-                    subtree = tree[position]
+
+                    try:
+                        subtree = tree[position]
+                    except RecursionError:
+                        # TODO This is a quick fix for some problem with extremely long trees
+                        log.error('skipping node_number {}, key {} because of RecursionError in tree\n{}'.format(
+                            node_number, key, tree))
+                        continue
+
                     try:
                         subtree.set_label(
                             '{}_VAR_{}'.format(subtree.label(), key))
