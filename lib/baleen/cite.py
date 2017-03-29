@@ -128,7 +128,7 @@ def get_doi_metadata(doi, cache, online=True):
 
     try:
         parts = published['date-parts'][0]
-    except (KeyError, IndexError):
+    except (TypeError, KeyError, IndexError):
         parts = []
 
     try:
